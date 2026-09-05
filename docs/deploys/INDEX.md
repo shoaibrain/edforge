@@ -29,6 +29,43 @@ operator-specific deployment evidence. The entries below preserve durable public
 status without raw log links, account IDs, ARNs, tenant UUIDs, operator emails,
 JWT claims, or environment-specific hostnames.
 
+### 2026-09-05 — Cost redesign Sprint 6: VPC-resident infrastructure torn down — Green
+
+- **Scope:** PR #452 (C6.1–C6.6), run overnight on the operator's
+  instruction with production interruption accepted; audit, decisions and
+  the as-executed record in
+  `docs/architecture/cost-redesign/sprint-6-analysis.md`. Every deploy was
+  preceded by a `cdk diff` with zero DynamoDB, Cognito, S3 or SES lines and,
+  where exports were removed, by `list-imports` on each of them.
+- **C6.1 tenant-template (102 s):** the four ECS services, task definitions
+  and task roles, the cluster nested stack, the Cloud Map namespace, the
+  ECS security group, the rproxy role, the ALB target group and listener
+  rule removed; the three ABAC roles lose only their task-role trust
+  statements; the IEMIS audit emit-failure filter and alarm re-created on
+  the identity function's log group (new alarm name); alarms stay at ten.
+  Eight container log groups were retained rather than deleted.
+- **C6.2 analytics (25 s):** the ALB dashboard widgets and the Sprint 2
+  attach of five analytics routes to API-A removed (the routes had been
+  dead on API-A since July); the stack imports nothing from API-A.
+- **C6.3 + C6.4/C6.6 shared-infra (149 s, one deploy):** API-A with its
+  deployment, stage, usage plans, log group and retention; both load
+  balancers with listeners and target groups; the ALB security group; the
+  VPC link; the VPC with its subnets, route tables, internet gateway, NAT
+  gateway, Elastic IP and gateway endpoints; sixteen outputs. API-B took
+  over the account-level API Gateway logging role and dropped the two
+  stage variables no integration used. A first attempt failed at synth
+  because source was being edited in the same worktree while the deploy
+  synthesized; nothing reached CloudFormation, and the two changes went out
+  together once both pre-flights were clean.
+- **C6.5 ECR:** 30-day expiry lifecycle policy on the identity, academics
+  and finance repositories.
+- **Account afterwards:** one REST API (API-B), no load balancer, no VPC
+  link, NAT gateway `deleted`, no Elastic IP, only the default VPC, no ECS
+  cluster. API-B answered on all four prefixes throughout with zero 5xx and
+  zero function errors; the finance schedules ran on time through the
+  window. Fixed cost remaining: the two KMS keys of the SBT script jobs
+  (Sprint 7) — everything else is usage-billed.
+
 ### 2026-09-05 — Cost redesign Sprint 5: finance on its function; ECS at zero — Green (compressed soak)
 
 - **Scope:** PR #451 (C5.1, C5.3), stacked on #450. Operator go for each

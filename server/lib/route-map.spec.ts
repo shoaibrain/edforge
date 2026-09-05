@@ -54,17 +54,21 @@ describe('tenant-api-additions.json (C2.1)', () => {
     }
   });
 
-  it('carries exactly the five analytics routes the analytics stack attaches to API-A', () => {
-    const src = fs.readFileSync(path.join(LIB, 'analytics/analytics-stack.ts'), 'utf8');
-    const attached = [...src.matchAll(/addRoute\(\[([^\]]+)\]\)/g)].map((m) =>
-      '/' + m[1].split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, '')).join('/'),
-    );
-    expect(attached.length).toBe(5);
+  it('carries the five analytics routes as GET on analyticsFn, and the analytics stack attaches nothing to API-A any more (C6.2)', () => {
     const ours = Object.entries(additions.paths).filter(([, a]) => a.fn === 'analyticsFn').map(([p]) => p);
-    expect(ours.sort()).toEqual(attached.sort());
+    expect(ours.sort()).toEqual([
+      '/analytics/fleet',
+      '/analytics/me/session-history',
+      '/analytics/tenants/{tenantId}',
+      '/analytics/tenants/{tenantId}/adoption-report',
+      '/analytics/tenants/{tenantId}/export-csv-url',
+    ]);
     for (const [p, a] of Object.entries(additions.paths)) {
       if (a.fn === 'analyticsFn') expect({ path: p, methods: a.methods }).toEqual({ path: p, methods: ['get'] });
     }
+    const src = fs.readFileSync(path.join(LIB, 'analytics/analytics-stack.ts'), 'utf8');
+    expect(src).not.toMatch(/addRoute\(/);
+    expect(src).not.toContain('TenantApiRestApiId');
   });
 
   it('the route linter no longer exempts any /internal path (they are API-B additions now)', () => {

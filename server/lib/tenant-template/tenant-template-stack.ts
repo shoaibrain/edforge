@@ -1,6 +1,5 @@
 import * as cdk from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
-import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaNodejs from "aws-cdk-lib/aws-lambda-nodejs";
@@ -9,11 +8,11 @@ import * as events from "aws-cdk-lib/aws-events";
 import * as eventsTargets from "aws-cdk-lib/aws-events-targets";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as sqs from "aws-cdk-lib/aws-sqs";
+import * as sns from "aws-cdk-lib/aws-sns";
+import * as cwActions from "aws-cdk-lib/aws-cloudwatch-actions";
 import { type Construct } from "constructs";
 import { type Table } from "aws-cdk-lib/aws-dynamodb";
 import { IdentityProvider } from "./identity-provider";
-import { EcsCluster } from "./ecs-cluster";
-import { EcsService } from "./services";
 import { LambdaService } from "./lambda-service";
 import { TenantTemplateNag } from "../cdknag/tenant-template-nag";
 import { addTemplateTag } from "../utilities/helper-functions";
@@ -25,7 +24,6 @@ import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import { withApiBServiceUrls } from "../utilities/service-urls";
 import { API_B_URL_EXPORT } from "../utilities/function-names";
 import { ContainerInfo } from "../interfaces/container-info";
-import { HttpNamespace } from "aws-cdk-lib/aws-servicediscovery";
 import { EcsDynamoDB } from "./ecs-dynamodb";
 import { CognitoPostAuthTrigger } from "../auth-events/cognito-post-auth-trigger";
 import * as path from "path";
@@ -50,8 +48,6 @@ interface TenantTemplateStackProps extends cdk.StackProps {
   corsAllowedOrigins: string; // Comma-separated CORS origins (also used for Cognito callback URLs)
   eventBusName: string; // SBT Event Bus Name for microservice domain events
   useFederation: string;
-  useEc2?: boolean;
-  useRProxy?: boolean;
   /**
    * Cost-redesign C1.6 — also deploy each service as a Lambda function
    * (edforge-<svc>-<tier>-api) built by scripts/build-lambda.sh. Off by
@@ -88,12 +84,9 @@ interface TenantTemplateStackProps extends cdk.StackProps {
  */
 export class TenantTemplateStack extends cdk.Stack {
   // Removed: productServiceUri and orderServiceUri - not needed for EdForge
-  cluster: ecs.ICluster;
-  namespace: HttpNamespace;
   /** ABAC role per service, created with the ECS task role and shared with the Lambda role. */
   private readonly abacRoles = new Map<string, iam.Role>();
   private readonly storages = new Map<string, EcsDynamoDB>();
-  private readonly taskRoles = new Map<string, iam.Role>();
 
   constructor(scope: Construct, id: string, props: TenantTemplateStackProps) {
     super(scope, id, props);
@@ -137,27 +130,7 @@ export class TenantTemplateStack extends cdk.Stack {
       identityTableName: `edforge-identity-${props.tier.toLowerCase()}`,
     });
 
-    const vpc = ec2.Vpc.fromVpcAttributes(this, "Vpc", {
-      vpcId: cdk.Fn.importValue("EcsVpcId"),
-      availabilityZones: cdk.Fn.split(
-        ",",
-        cdk.Fn.importValue("AvailabilityZones")
-      ),
-      privateSubnetIds: cdk.Fn.split(
-        ",",
-        cdk.Fn.importValue("PrivateSubnetIds")
-      ),
-    });
-
-    // SG for ALB to ECS & ECS services's communication
-    const ecsSG = new ec2.SecurityGroup(this, "ecsSG", {
-      vpc: vpc,
-      allowAllOutbound: true,
-    });
-
     // Configuration values with clear defaults
-    const isEc2Tier: boolean = props.useEc2 ?? false;
-    const isRProxy: boolean = props.useRProxy ?? true;
 
     // Clear condition variables for better readability
     const isAdvancedTier = props.tier.toLocaleLowerCase() === "advanced";
@@ -169,46 +142,8 @@ export class TenantTemplateStack extends cdk.Stack {
     //   Phase 2: Deploy services into existing cluster (ACTIVE)
     const shouldDeployServices = !isAdvancedTier || isAdvancedActive;
 
-    // V1_DEFERRED: Advanced tier cluster sharing
-    // When tier=ADVANCED and advancedCluster=ACTIVE, the stack references an existing
-    // shared Advanced cluster instead of creating a new one. This enables cost-efficient
-    // multi-tenant isolation for the Advanced tier.
-    //
-    // In V1 MVP, only BASIC tier is deployed (advancedCluster always INACTIVE),
-    // so this branch is never executed. The EcsCluster construct (else branch)
-    // creates the shared prod-basic cluster.
-    //
-    // To re-enable: Ensure the Advanced cluster exists before deploying Advanced tenants.
-    // The cluster name pattern is: prod-advanced-{accountId}
-    // ECS Cluster setup based on tier and status
-    if (isAdvancedTier && isAdvancedActive) {
-      // Reference existing Advanced cluster
-      const clusterName = `${props.stageName}-advanced-${
-        cdk.Stack.of(this).account
-      }`;
-      this.cluster = ecs.Cluster.fromClusterAttributes(this, "advanced", {
-        clusterName: clusterName,
-        vpc: vpc,
-        securityGroups: [],
-      });
-    } else {
-      // Create new cluster for Basic/Premium or inactive Advanced
-      const ecsCluster = new EcsCluster(this, "EcsCluster", {
-        vpc: vpc,
-        stageName: props.stageName,
-        tenantId: props.tenantId,
-        tier: props.tier,
-        isEc2Tier,
-      });
-      this.cluster = ecsCluster.cluster;
-    }
-
     // Deploy services conditionally
     if (shouldDeployServices) {
-      this.namespace = new HttpNamespace(this, "CloudMapNamespace", {
-        name: `${props.tenantName}`,
-      });
-
       const data = fs.readFileSync(
         path.resolve(__dirname, "../service-info.json"),
         "utf8"
@@ -221,7 +156,7 @@ export class TenantTemplateStack extends cdk.Stack {
         .digest('hex');
 
       const replacements: { [key: string]: string } = {
-        "<NAMESPACE>": this.namespace.namespaceName,
+        "<NAMESPACE>": props.tenantName,
         "<EVENT_BUS_NAME>": props.eventBusName, // SBT Event Bus Name for microservice domain events
         "<INTERNAL_API_KEY>": internalApiKey,
         // <TIER> is deliberately NOT substituted here: createStorageIfNeeded()
@@ -239,40 +174,12 @@ export class TenantTemplateStack extends cdk.Stack {
       const serviceInfo = JSON.parse(updateData);
       const containerInfo: ContainerInfo[] = serviceInfo.Containers;
 
-      // Deploy core services for EdForge (users, school) in parallel
-      const coreServices: EcsService[] = [];
-
       containerInfo.forEach((info) => {
         // Create storage if needed for the service
         const storage = this.createStorageIfNeeded(info, props.tenantName, props.tier);
         if (storage) this.storages.set(info.name, storage);
 
-        // Create IAM task role for the service
-        const taskRole = this.createTaskRole(info, storage, identityProvider, props.tier);
-        this.taskRoles.set(info.name, taskRole);
-
-        // Create ECS service
-        const ecsService = new EcsService(this, `${info.name}-EcsServices`, {
-          tenantId: props.tenantId,
-          tenantName: props.tenantName,
-          isEc2Tier,
-          isRProxy,
-          isTarget: !isRProxy,
-          vpc: vpc,
-          cluster: this.cluster,
-          ecsSG: ecsSG,
-          taskRole,
-          namespace: this.namespace,
-          info,
-          identityDetails: identityProvider.identityDetails,
-        });
-
-        // Set up dependencies
-        ecsService.service.node.addDependency(this.cluster);
-        ecsService.service.node.addDependency(vpc);
-
-        // Store core services for rproxy dependency
-        coreServices.push(ecsService);
+        this.createAbacRole(info, storage, identityProvider, props.tier);
       });
 
       // Cost-redesign C1.6 — Lambda functions alongside the ECS services.
@@ -314,6 +221,38 @@ export class TenantTemplateStack extends cdk.Stack {
           // C2.5 — API-B reaches the function through a stage variable, which
           // grants nothing by itself. shared-infra (API-B) deploys first.
           grantApiBInvoke(svc.fn);
+          if (info.name === "identity") {
+            // Sprint 1 S1.12 moved off the container (C6.1): a dropped IEMIS
+            // audit row is compliance-critical, so the filter follows the
+            // identity function's log group. New alarm name — the container
+            // alarm is deleted in the same update and alarm names are unique.
+            const emitFailureFilter = new logs.MetricFilter(this, "IemisAuditEmitFailureFilter", {
+              logGroup: logs.LogGroup.fromLogGroupName(this, "IdentityFunctionLogGroup", `/aws/lambda/${svc.functionName}`),
+              metricNamespace: "EdForge/IEMIS",
+              metricName: "AuditEmitFailures",
+              filterPattern: logs.FilterPattern.literal('"iemis.audit.emit_failure"'),
+              metricValue: "1",
+              defaultValue: 0,
+            });
+            emitFailureFilter.node.addDependency(svc.fn);
+            const emitFailureAlarm = new cloudwatch.Alarm(this, "IemisAuditEmitFailuresAlarm", {
+              alarmName: `edforge-identity-iemis-audit-emit-failures-${props.tier.toLowerCase()}`,
+              alarmDescription:
+                "IEMIS audit events are being dropped due to DDB write failures. " +
+                "Compliance-critical: an operator action has happened but its " +
+                "audit row did not land. Runbook: docs/operations/saraswati-oncall.md " +
+                'section "IEMIS audit emit failures".',
+              metric: emitFailureFilter.metric({ statistic: "Sum", period: cdk.Duration.minutes(5) }),
+              threshold: 0,
+              evaluationPeriods: 1,
+              comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+              treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+            });
+            const opsTopicArn = process.env.CDK_PARAM_OPERATOR_TOPIC_ARN;
+            if (opsTopicArn) {
+              emitFailureAlarm.addAlarmAction(new cwActions.SnsAction(sns.Topic.fromTopicArn(this, "OperatorAlertTopicRef", opsTopicArn)));
+            }
+          }
 
           // C3.4 — finance's timers run as EventBridge Scheduler schedules on a
           // second function from the same bundle (index.scheduledHandler), with
@@ -356,8 +295,6 @@ export class TenantTemplateStack extends cdk.Stack {
             jobs.queue.grantConsumeMessages(worker.role);
             worker.fn.addEventSource(new lambdaEventSources.SqsEventSource(jobs.queue, { batchSize: 1, maxConcurrency: 2, reportBatchItemFailures: true }));
             jobs.queue.grantSendMessages(svc.role);
-            const academicsTaskRole = this.taskRoles.get(info.name);
-            if (academicsTaskRole) jobs.queue.grantSendMessages(academicsTaskRole);
             svc.fn.addEnvironment("ACADEMICS_JOBS_QUEUE_URL", jobs.queue.queueUrl);
             abacRole.addToPolicy(
               new iam.PolicyStatement({
@@ -435,8 +372,6 @@ export class TenantTemplateStack extends cdk.Stack {
             jobs.queue.grantConsumeMessages(worker.role);
             worker.fn.addEventSource(new lambdaEventSources.SqsEventSource(jobs.queue, { batchSize: 1, maxConcurrency: 2, reportBatchItemFailures: true }));
             jobs.queue.grantSendMessages(svc.role);
-            const financeTaskRole = this.taskRoles.get(info.name);
-            if (financeTaskRole) jobs.queue.grantSendMessages(financeTaskRole);
             svc.fn.addEnvironment("FINANCE_JOBS_QUEUE_URL", jobs.queue.queueUrl);
 
             new FunctionsErrorsAlarm(this, "FinanceFunctionsErrorsAlarm", {
@@ -461,18 +396,6 @@ export class TenantTemplateStack extends cdk.Stack {
         }
       }
 
-      if (isRProxy) {
-        this.deployRProxyService(
-          serviceInfo,
-          props,
-          vpc,
-          ecsSG,
-          identityProvider,
-          isEc2Tier,
-          isRProxy,
-          coreServices
-        );
-      }
     }
 
     // ====================================================================
@@ -700,10 +623,8 @@ export class TenantTemplateStack extends cdk.Stack {
     if (process.env.CDK_NAG_ENABLED === "true") {
       new TenantTemplateNag(this, "TenantInfraNag", {
         tenantId: props.tenantId,
-        isEc2Tier,
         tier: props.tier,
         advancedCluster: props.advancedCluster,
-        isRProxy,
       });
     }
   }
@@ -773,151 +694,104 @@ export class TenantTemplateStack extends cdk.Stack {
   /**
    * Create IAM task role for ECS service
    */
-  private createTaskRole(
+  private createAbacRole(
     info: ContainerInfo,
     storage: EcsDynamoDB | undefined,
     identityProvider: IdentityProvider,
     tier: string
-  ): iam.Role {
-    let policy = JSON.stringify(info.policy);
-
-    if (storage) {
-      // Create main ECS task role first
-      const taskRole = new iam.Role(this, `${info.name}-ecsTaskRole`, {
-        assumedBy: new iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
-        managedPolicies: [
-          iam.ManagedPolicy.fromAwsManagedPolicyName(
-            "service-role/AmazonEC2ContainerServiceforEC2Role"
-          ),
-        ],
-      });
-
-      // Create ABAC role with proper Trust Policy from the start
-      const abacRole = new iam.Role(this, `${info.name}-ABACRole`, {
-        assumedBy: new iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
-        inlinePolicies: {
-          DynamoDBTenantAccess: storage.policyDocument
-        }
-      });
-
-      // Add Task Role to ABAC Role Trust Policy with conditions
-      this.abacRoles.set(info.name, abacRole);
-      const grantOpts = {
-        info,
-        role: taskRole,
-        abacRole,
-        tableArn: storage.table.tableArn,
-        userPoolArn: identityProvider.tenantUserPool.userPoolArn,
-        identityTableArn: `arn:aws:dynamodb:${this.region}:${this.account}:table/edforge-identity-${tier.toLowerCase()}`,
-        additionalPolicyJson: TenantTemplateStack.renderAdditionalPolicy(info, identityProvider),
-        additionalPolicyId: `${info.name}AdditionalPolicy`,
-      };
-      // Principal grants (assume ABAC role, bootstrap DynamoDB, per-service
-      // extras, AdditionalPolicy) are shared with the Lambda role — see
-      // applyServicePrincipalGrants. The ABAC role's own S3 grants and the
-      // environment wiring below stay here: they happen once per service.
-      TenantTemplateStack.applyServicePrincipalGrants(this, grantOpts);
-
-      // Add Cognito permissions for Identity service (Cognito-first pattern)
-      // Identity service needs to read user information from Cognito User Pool
-      if (info.name === 'identity') {
-        // Sprint C.0.7 — Per-school PDF branding upload/read.
-        //
-        // Identity service mints presigned URLs against the PDF-assets bucket
-        // using TVM-issued tenant-scoped credentials. The ABAC role's S3
-        // policy interpolates ${aws:PrincipalTag/tenant} into the resource
-        // path, so the presigned URL CANNOT escape the caller's tenant
-        // partition even if BrandingService constructs a wrong key.
-        //
-        // Bucket name follows the deterministic
-        //   edforge-pdf-assets-{account}-{region}
-        // convention from analytics-stack (C.0.6) — no CFN import, no
-        // cross-stack export (R46 mitigation). The env var
-        // PDF_ASSETS_BUCKET tells the container which bucket to sign for.
-        const stack = cdk.Stack.of(this);
-        const pdfAssetsBucketName =
-          `edforge-pdf-assets-${stack.account}-${stack.region}`;
-        abacRole.addToPolicy(
-          new iam.PolicyStatement({
-            effect: iam.Effect.ALLOW,
-            // PutObject for presigned uploads; GetObject for read-back (PDF
-            // render endpoints in C.1+). NO DeleteObject — branding has no
-            // delete path today, and the bucket is versioned so a delete
-            // without DeleteObjectVersion would only stamp delete-markers
-            // anyway. A "reset branding" UI can earn delete back with its
-            // own ticket + IAM widening.
-            actions: ['s3:PutObject', 's3:GetObject'],
-            resources: [
-              `arn:aws:s3:::${pdfAssetsBucketName}/tenants/\${aws:PrincipalTag/tenant}/*`,
-            ],
-          })
-        );
-        info.environment = info.environment || {};
-        info.environment.PDF_ASSETS_BUCKET = pdfAssetsBucketName;
-
-        // Sprint E.1 — IEMIS report CSV download. The report-aggregator Lambda
-        // writes the generated CSV to the reports-staging bucket under keys
-        // `tenant=<tenantId>/...`; identity mints a presigned GET URL so the
-        // operator can download it (the bucket is private). Same ABAC scoping
-        // as PDF assets: ${aws:PrincipalTag/tenant} resolves to the caller's
-        // tenant, so the URL cannot read another tenant's report. Bucket name
-        // follows the deterministic analytics-stack convention (no CFN export).
-        const reportsStagingBucketName =
-          `edforge-reports-staging-${stack.account}-${stack.region}`;
-        abacRole.addToPolicy(
-          new iam.PolicyStatement({
-            effect: iam.Effect.ALLOW,
-            actions: ['s3:GetObject'],
-            resources: [
-              `arn:aws:s3:::${reportsStagingBucketName}/tenant=\${aws:PrincipalTag/tenant}/*`,
-            ],
-          })
-        );
-        info.environment.REPORTS_STAGING_BUCKET = reportsStagingBucketName;
+  ): iam.Role | undefined {
+    if (!storage) return undefined;
+    const abacRole = new iam.Role(this, `${info.name}-ABACRole`, {
+      assumedBy: new iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+      inlinePolicies: {
+        DynamoDBTenantAccess: storage.policyDocument
       }
-      // Cost-redesign C3.11 — academics stages IEMIS import rows in the same
-      // bucket (tenant=<id>/iemis-import/*). The container and the worker
-      // function inherit this; the put/get/delete grant on that sub-prefix is
-      // added to the ABAC role by the Lambda-services block.
-      if (info.name === "academics") {
-        info.environment = info.environment || {};
-        info.environment.REPORTS_STAGING_BUCKET = `edforge-reports-staging-${this.account}-${this.region}`;
-      }
-
-      // Sprint F.1 — Finance bulk-PDF export grant. Extracted to a static
-      // helper so `tenant-template-stack.spec.ts` can assert the role +
-      // env-var wiring without standing up the full stack (which depends on
-      // a build-generated `service-info.json`). The helper itself is a
-      // no-op for non-finance containers; the if-guard lives inside it.
-      TenantTemplateStack.applyFinancePdfGrant(this, info, abacRole);
-
-      // Add environment variables for TokenVendingMachine
-      info.environment = info.environment || {};
-      info.environment.IAM_ROLE_ARN = abacRole.roleArn;
-      info.environment.REQUEST_TAG_KEYS_MAPPING_ATTRIBUTES = '{"tenant":"custom:tenantId"}';
-      info.environment.IDP_DETAILS = JSON.stringify({
-        issuer: identityProvider.identityDetails.details.issuer,
-        audience: identityProvider.identityDetails.details.clientId
-      });
-
-      return taskRole;
-    } else {
-      // Create role for stateless service
-      policy = policy.replace(
-        /<USER_POOL_ID>/g,
-        identityProvider.identityDetails.details.userPoolId
+    });
+    this.abacRoles.set(info.name, abacRole);
+    // Add Cognito permissions for Identity service (Cognito-first pattern)
+    // Identity service needs to read user information from Cognito User Pool
+    if (info.name === 'identity') {
+      // Sprint C.0.7 — Per-school PDF branding upload/read.
+      //
+      // Identity service mints presigned URLs against the PDF-assets bucket
+      // using TVM-issued tenant-scoped credentials. The ABAC role's S3
+      // policy interpolates ${aws:PrincipalTag/tenant} into the resource
+      // path, so the presigned URL CANNOT escape the caller's tenant
+      // partition even if BrandingService constructs a wrong key.
+      //
+      // Bucket name follows the deterministic
+      //   edforge-pdf-assets-{account}-{region}
+      // convention from analytics-stack (C.0.6) — no CFN import, no
+      // cross-stack export (R46 mitigation). The env var
+      // PDF_ASSETS_BUCKET tells the container which bucket to sign for.
+      const stack = cdk.Stack.of(this);
+      const pdfAssetsBucketName =
+        `edforge-pdf-assets-${stack.account}-${stack.region}`;
+      abacRole.addToPolicy(
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          // PutObject for presigned uploads; GetObject for read-back (PDF
+          // render endpoints in C.1+). NO DeleteObject — branding has no
+          // delete path today, and the bucket is versioned so a delete
+          // without DeleteObjectVersion would only stamp delete-markers
+          // anyway. A "reset branding" UI can earn delete back with its
+          // own ticket + IAM widening.
+          actions: ['s3:PutObject', 's3:GetObject'],
+          resources: [
+            `arn:aws:s3:::${pdfAssetsBucketName}/tenants/\${aws:PrincipalTag/tenant}/*`,
+          ],
+        })
       );
-      return new iam.Role(this, `${info.name}-ecsTaskRole`, {
-        assumedBy: new iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
-        inlinePolicies: {
-          EcsContainerInlinePolicy: iam.PolicyDocument.fromJson(
-            JSON.parse(policy)
-          ),
-        },
-      });
-    }
-  }
+      info.environment = info.environment || {};
+      info.environment.PDF_ASSETS_BUCKET = pdfAssetsBucketName;
 
+      // Sprint E.1 — IEMIS report CSV download. The report-aggregator Lambda
+      // writes the generated CSV to the reports-staging bucket under keys
+      // `tenant=<tenantId>/...`; identity mints a presigned GET URL so the
+      // operator can download it (the bucket is private). Same ABAC scoping
+      // as PDF assets: ${aws:PrincipalTag/tenant} resolves to the caller's
+      // tenant, so the URL cannot read another tenant's report. Bucket name
+      // follows the deterministic analytics-stack convention (no CFN export).
+      const reportsStagingBucketName =
+        `edforge-reports-staging-${stack.account}-${stack.region}`;
+      abacRole.addToPolicy(
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: ['s3:GetObject'],
+          resources: [
+            `arn:aws:s3:::${reportsStagingBucketName}/tenant=\${aws:PrincipalTag/tenant}/*`,
+          ],
+        })
+      );
+      info.environment.REPORTS_STAGING_BUCKET = reportsStagingBucketName;
+    }
+    // Cost-redesign C3.11 — academics stages IEMIS import rows in the same
+    // bucket (tenant=<id>/iemis-import/*). The container and the worker
+    // function inherit this; the put/get/delete grant on that sub-prefix is
+    // added to the ABAC role by the Lambda-services block.
+    if (info.name === "academics") {
+      info.environment = info.environment || {};
+      info.environment.REPORTS_STAGING_BUCKET = `edforge-reports-staging-${this.account}-${this.region}`;
+    }
+
+    // Sprint F.1 — Finance bulk-PDF export grant. Extracted to a static
+    // helper so `tenant-template-stack.spec.ts` can assert the role +
+    // env-var wiring without standing up the full stack (which depends on
+    // a build-generated `service-info.json`). The helper itself is a
+    // no-op for non-finance containers; the if-guard lives inside it.
+    TenantTemplateStack.applyFinancePdfGrant(this, info, abacRole);
+
+    // Add environment variables for TokenVendingMachine
+    info.environment = info.environment || {};
+    info.environment.IAM_ROLE_ARN = abacRole.roleArn;
+    info.environment.REQUEST_TAG_KEYS_MAPPING_ATTRIBUTES = '{"tenant":"custom:tenantId"}';
+    info.environment.IDP_DETAILS = JSON.stringify({
+      issuer: identityProvider.identityDetails.details.issuer,
+      audience: identityProvider.identityDetails.details.clientId
+    });
+
+    return abacRole;
+  }
   /**
    * Cost-redesign C1.6 — the AdditionalPolicy JSON from service-info with the
    * tenant pool id substituted. Shared by the ECS task role and the Lambda role.
@@ -1092,54 +966,5 @@ export class TenantTemplateStack extends cdk.Stack {
     );
     info.environment = info.environment || ({} as ContainerInfo['environment']);
     info.environment.PDF_OUTPUT_BUCKET = pdfsBucketName;
-  }
-
-  /**
-   * Deploy rProxy service with dependencies on core services
-   */
-  private deployRProxyService(
-    serviceInfo: any,
-    props: TenantTemplateStackProps,
-    vpc: ec2.IVpc,
-    ecsSG: ec2.SecurityGroup,
-    identityProvider: IdentityProvider,
-    isEc2Tier: boolean,
-    isRProxy: boolean,
-    coreServices: EcsService[]
-  ): void {
-    const rProxyInfo: ContainerInfo = serviceInfo.Rproxy;
-
-    // Create IAM role for rProxy with CloudWatch permissions
-    const taskRole = new iam.Role(this, `rProxy-taskRole`, {
-      assumedBy: new iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
-    });
-
-    // CloudWatchAgentServerPolicy is sufficient for log
-    // publishing. CloudWatchFullAccess grants unnecessary admin rights.
-    taskRole.addManagedPolicy(
-      iam.ManagedPolicy.fromAwsManagedPolicyName("CloudWatchAgentServerPolicy")
-    );
-
-    // Create rProxy ECS service
-    const rproxyService = new EcsService(this, `rproxy-EcsServices`, {
-      tenantId: props.tenantId,
-      tenantName: props.tenantName,
-      isEc2Tier,
-      isRProxy,
-      isTarget: isRProxy,
-      vpc: vpc,
-      cluster: this.cluster,
-      ecsSG: ecsSG,
-      taskRole,
-      namespace: this.namespace,
-      info: rProxyInfo,
-      identityDetails: identityProvider.identityDetails,
-    });
-
-    // rProxy depends on ALL core services (users, school for EdForge)
-    // Previously included orders and products which have been removed
-    coreServices.forEach((coreService) => {
-      rproxyService.service.node.addDependency(coreService.service);
-    });
   }
 }

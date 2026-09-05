@@ -13,11 +13,9 @@ import { AnalyticsStack, type AnalyticsStackProps } from './analytics-stack';
 
 function synth(overrides: Partial<AnalyticsStackProps> = {}) {
   const app = new cdk.App();
-  // Phase 4 (Sprint I-2) added two required props to AnalyticsStackProps.
-  // albLoadBalancerFullName is a plain string used as a CloudWatch
-  // dimension; tenantSeederLambda needs an IFunction. Creating a placeholder
-  // Lambda in a helper stack is the canonical CDK test pattern for
-  // cross-stack references under Template.fromStack.
+  // tenantSeederLambda needs an IFunction. Creating a placeholder Lambda in a
+  // helper stack is the canonical CDK test pattern for cross-stack references
+  // under Template.fromStack.
   const depsStack = new cdk.Stack(app, 'AnalyticsStackTestDeps', {
     env: { account: '111111111111', region: 'us-east-2' },
   });
@@ -31,7 +29,6 @@ function synth(overrides: Partial<AnalyticsStackProps> = {}) {
     eventBusName: 'test-sbt-bus',
     operatorAlertEmail: 'ops@example.com',
     analyticsEnabled: 'false',
-    albLoadBalancerFullName: 'app/test-alb/1234567890abcdef',
     tenantSeederLambda,
     corsAllowedOrigins:
       'https://test-tenant-frontend.example.com,https://test-frontend-*.preview.example.com',
@@ -464,47 +461,14 @@ describe('AnalyticsStack — Layer 2 CDK template assertions', () => {
     });
   });
 
-  describe('Sprint 2 — API Gateway wiring', () => {
-    it('creates a shared TokenAuthorizer referencing the imported authorizer ARN', () => {
-      // TOKEN type matches the existing tenant_authorizer.py Lambda which
-      // reads event.authorizationToken (only populated by TOKEN-type auth).
-      t.hasResourceProperties(
-        'AWS::ApiGateway::Authorizer',
-        Match.objectLike({
-          Type: 'TOKEN',
-          IdentitySource: 'method.request.header.Authorization',
-        }),
-      );
-    });
-
-    it('adds 5 GET methods protected by the custom authorizer', () => {
-      const methods = t.findResources('AWS::ApiGateway::Method', {
-        Properties: {
-          HttpMethod: 'GET',
-          AuthorizationType: 'CUSTOM',
-        },
-      });
-      expect(Object.keys(methods).length).toBeGreaterThanOrEqual(5);
-    });
-
-    it('adds 5 OPTIONS mock integrations for CORS preflight', () => {
-      const optionsMethods = t.findResources('AWS::ApiGateway::Method', {
-        Properties: {
-          HttpMethod: 'OPTIONS',
-          AuthorizationType: 'NONE',
-        },
-      });
-      expect(Object.keys(optionsMethods).length).toBeGreaterThanOrEqual(5);
-    });
-
-    it('creates Lambda invoke permissions for API Gateway', () => {
-      const perms = t.findResources('AWS::Lambda::Permission', {
-        Properties: {
-          Principal: 'apigateway.amazonaws.com',
-          Action: 'lambda:InvokeFunction',
-        },
-      });
-      expect(Object.keys(perms).length).toBeGreaterThanOrEqual(5);
+  describe('API-A left behind (C6.2)', () => {
+    it('owns no API Gateway resource, method or authorizer, and imports nothing from API-A', () => {
+      t.resourceCountIs('AWS::ApiGateway::Authorizer', 0);
+      t.resourceCountIs('AWS::ApiGateway::Method', 0);
+      t.resourceCountIs('AWS::ApiGateway::Resource', 0);
+      const body = JSON.stringify(t.toJSON());
+      for (const name of ['TenantApiRestApiId', 'TenantApiRootResourceId', 'TenantApiAuthorizerArn']) expect(body).not.toContain(name);
+      expect(body).not.toContain('AWS/ApplicationELB');
     });
   });
 

@@ -2,8 +2,6 @@ import * as fs from 'fs';
 import * as cdk from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
-import * as ec2 from 'aws-cdk-lib/aws-ec2';
-import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { ApiGatewayLambda } from './api-gateway-lambda';
 import { stageVariableFunctionNames } from '../utilities/function-names';
@@ -16,15 +14,12 @@ import { stageVariableFunctionNames } from '../utilities/function-names';
 function synth() {
   const app = new cdk.App({ context: { 'aws:cdk:bundling-stacks': [] } });
   const stack = new cdk.Stack(app, 'ApiBTestStack', { env: { account: '111111111111', region: 'ap-south-1' } });
-  const vpc = new ec2.Vpc(stack, 'Vpc', { maxAzs: 2 });
-  const nlb = new elbv2.NetworkLoadBalancer(stack, 'Nlb', { vpc, internetFacing: false });
-  const vpcLink = new apigateway.VpcLink(stack, 'VpcLink', { targets: [nlb] });
   const authorizer = new lambda.Function(stack, 'Authorizer', {
     runtime: lambda.Runtime.PYTHON_3_12, handler: 'index.handler', code: lambda.Code.fromInline('def handler(e, c): pass'),
   });
   const key = (id: string) => new apigateway.ApiKey(stack, id);
   const api = new ApiGatewayLambda(stack, 'ApiB', {
-    stageName: 'prod', nlb, vpcLink, corsAllowedOrigins: 'https://app.example.test,https://preview.example.test',
+    stageName: 'prod', corsAllowedOrigins: 'https://app.example.test,https://preview.example.test',
     authorizerFunction: authorizer, functionNames: stageVariableFunctionNames('basic'),
     apiKeyBasicTier: key('Basic'), apiKeyAdvancedTier: key('Advanced'), apiKeyPremiumTier: key('Premium'),
   });
@@ -46,17 +41,15 @@ describe('ApiGatewayLambda (C2.4)', () => {
     expect(props.Body).toBeUndefined();
   });
 
-  it('carries exactly seven stage variables: the three API-A has plus one literal name per function', () => {
+  it('carries exactly five stage variables: the authorizer name plus one literal name per function', () => {
     const [stage] = Object.values(template.findResources('AWS::ApiGateway::Stage')).map((r) => r.Properties);
     expect(stage.StageName).toBe('prod');
-    expect(Object.keys(stage.Variables).sort()).toEqual(['academicsFn', 'analyticsFn', 'authorizerFn', 'financeFn', 'identityFn', 'nlbDns', 'vpcLinkId']);
+    expect(Object.keys(stage.Variables).sort()).toEqual(['academicsFn', 'analyticsFn', 'authorizerFn', 'financeFn', 'identityFn']);
     expect(stage.Variables.identityFn).toBe('edforge-identity-basic-api');
     expect(stage.Variables.academicsFn).toBe('edforge-academics-basic-api');
     expect(stage.Variables.financeFn).toBe('edforge-finance-basic-api');
     expect(stage.Variables.analyticsFn).toBe('edforge-analytics-api');
     expect(typeof stage.Variables.authorizerFn).toBe('object');
-    expect(typeof stage.Variables.vpcLinkId).toBe('object');
-    expect(typeof stage.Variables.nlbDns).toBe('object');
   });
 
   it('references the existing authorizer function (no new function) and grants it invoke from this API only', () => {
@@ -89,10 +82,10 @@ describe('ApiGatewayLambda (C2.4)', () => {
         const i = op['x-amazon-apigateway-integration'];
         if (m === 'options') { mock++; continue; }
         if (i.type === 'aws_proxy') { aws++; expect(i.uri).toMatch(/^arn:aws:apigateway:ap-south-1:lambda:path\/2015-03-31\/functions\/arn:aws:lambda:ap-south-1:111111111111:function:\$\{stageVariables\.(identityFn|academicsFn|financeFn|analyticsFn)\}\/invocations$/); }
-        else if (i.type === 'http_proxy') { http++; expect(i.uri).toMatch(/^http:\/\/\$\{stageVariables\.nlbDns\}\/finance\//); expect(i.connectionId).toBe('${stageVariables.vpcLinkId}'); }
+        else if (i.type === 'http_proxy') { http++; }
       }
     }
-    expect({ aws, http, mock }).toEqual({ aws: 346, http: 70, mock: 287 });
+    expect({ aws, http, mock }).toEqual({ aws: 416, http: 0, mock: 287 });
     expect(body).toContain("'https://app.example.test'");
   });
 
@@ -112,10 +105,8 @@ describe('ApiGatewayLambda (C2.4)', () => {
   it('refuses to synthesize without a bound environment (region/account must be literal)', () => {
     const app = new cdk.App({ context: { 'aws:cdk:bundling-stacks': [] } });
     const stack = new cdk.Stack(app, 'Unbound');
-    const vpc = new ec2.Vpc(stack, 'Vpc', { maxAzs: 2 });
-    const nlb = new elbv2.NetworkLoadBalancer(stack, 'Nlb', { vpc });
     expect(() => new ApiGatewayLambda(stack, 'ApiB', {
-      stageName: 'prod', nlb, vpcLink: new apigateway.VpcLink(stack, 'VpcLink', { targets: [nlb] }), corsAllowedOrigins: 'https://x',
+      stageName: 'prod', corsAllowedOrigins: 'https://x',
       authorizerFunction: new lambda.Function(stack, 'A', { runtime: lambda.Runtime.PYTHON_3_12, handler: 'i.h', code: lambda.Code.fromInline('x') }),
       functionNames: stageVariableFunctionNames('basic'),
       apiKeyBasicTier: new apigateway.ApiKey(stack, 'B'), apiKeyAdvancedTier: new apigateway.ApiKey(stack, 'Ad'), apiKeyPremiumTier: new apigateway.ApiKey(stack, 'P'),

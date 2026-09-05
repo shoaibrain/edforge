@@ -3,7 +3,6 @@ import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as logs from 'aws-cdk-lib/aws-logs';
-import type * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import { Construct } from 'constructs';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -12,8 +11,6 @@ import { UsagePlans } from './usage-plans';
 export interface ApiGatewayLambdaProps {
   stageName: string;
   /** Still needed: finance stays on the VPC link until Sprint 5. */
-  nlb: elbv2.INetworkLoadBalancer;
-  vpcLink: apigateway.VpcLink;
   corsAllowedOrigins: string;
   /**
    * The authorizer API-A already runs (`ApiGateway.authorizerFunction`). It is
@@ -34,8 +31,8 @@ export interface ApiGatewayLambdaProps {
  *
  * Imports the generated `tenant-api-lambda.json` (C2.2) with the placeholder
  * mechanism API-A uses: request-time values are stage-variable markers, the
- * authorizer URI's region/account are literal at synth. Seven stage
- * variables: the three API-A has (`vpcLinkId`, `nlbDns`, `authorizerFn`) plus
+ * authorizer URI's region/account are literal at synth. Five stage
+ * variables: the authorizer function name (`authorizerFn`) plus
  * one per service function. Each function grants `apigateway.amazonaws.com`
  * invoke scoped to this API's ARN in its own stack (C2.5, C2.7) — the
  * documented requirement for stage-variable-resolved integrations.
@@ -67,8 +64,6 @@ export class ApiGatewayLambda extends Construct {
       '{{API_TITLE}}': 'TenantAPILambda',
       '{{stage}}': props.stageName,
       '{{CORS_ALLOWED_ORIGIN}}': primaryCorsOrigin,
-      '{{connection_id}}': '${stageVariables.vpcLinkId}',
-      '{{integration_uri}}': 'http://${stageVariables.nlbDns}',
       '{{authorizer_function}}': '${stageVariables.authorizerFn}',
       '{{region}}': stack.region,
       '{{account_id}}': stack.account,
@@ -91,7 +86,7 @@ export class ApiGatewayLambda extends Construct {
       apiDefinition: apigateway.ApiDefinition.fromAsset(this.substitutedSpecPath),
       // The account-level CloudWatch role already exists (API-A creates it);
       // a second AWS::ApiGateway::Account in the stack would fight it.
-      cloudWatchRole: false,
+      cloudWatchRole: true,
       minCompressionSize: cdk.Size.kibibytes(1),
       deployOptions: {
         stageName: props.stageName,
@@ -104,8 +99,6 @@ export class ApiGatewayLambda extends Construct {
           '/*/*': { dataTraceEnabled: false, loggingLevel: apigateway.MethodLoggingLevel.ERROR },
         },
         variables: {
-          vpcLinkId: props.vpcLink.vpcLinkId,
-          nlbDns: props.nlb.loadBalancerDnsName,
           authorizerFn: props.authorizerFunction.functionName,
           ...props.functionNames,
         },

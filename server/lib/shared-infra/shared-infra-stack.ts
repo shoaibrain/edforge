@@ -1,7 +1,4 @@
 import * as cdk from 'aws-cdk-lib';
-import * as ec2 from 'aws-cdk-lib/aws-ec2';
-import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
-import * as targets from 'aws-cdk-lib/aws-elasticloadbalancingv2-targets';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as path from 'path';
 import { type Construct } from 'constructs';
@@ -15,7 +12,6 @@ import { AttributeType, Table } from 'aws-cdk-lib/aws-dynamodb';
 
 import { SharedInfraNag } from '../cdknag/shared-infra-nag';
 import { ApiGateway } from './api-gateway';
-import { UsagePlans } from './usage-plans';
 import { ApiGatewayLambda } from './api-gateway-lambda';
 import { stageVariableFunctionNames } from '../utilities/function-names';
 import { EmailIdentity } from './email-identity';
@@ -23,7 +19,6 @@ import { EmailIdentity } from './email-identity';
 
 export interface SharedInfraProps extends cdk.StackProps {
   stageName: string
-  azCount: number
   corsAllowedOrigins: string
   /**
    * SES account-email inputs. When `sesSendingDomain` is set, the shared SES
@@ -51,11 +46,6 @@ export interface SharedInfraProps extends cdk.StackProps {
 }
 
 export class SharedInfraStack extends cdk.Stack {
-  vpc: ec2.IVpc;
-  alb: elbv2.ApplicationLoadBalancer;
-  albSG: ec2.ISecurityGroup;
-  listener: elbv2.ApplicationListener;
-  nlbListener: elbv2.NetworkListener;
   apiGateway: ApiGateway;
   /** API-B (cost-redesign C2.4): the strangler REST API on Lambda. */
   apiGatewayLambda: ApiGatewayLambda;
@@ -93,135 +83,6 @@ export class SharedInfraStack extends cdk.Stack {
       }
     };
     
-    const azs = cdk.Fn.getAzs(this.region);
-
-    const selectedAzs = Array(props.azCount).fill('').map(() => '');
-
-    for (let i = 0; i < props.azCount; i++) {
-      selectedAzs[i] = cdk.Fn.select(i, azs);
-    }
-
-    this.vpc = new ec2.Vpc(this, 'sbt-ecs-vpc', {
-      // maxAzs: props.azCount,
-      ipAddresses: ec2.IpAddresses.cidr('10.0.0.0/16'),
-      availabilityZones: selectedAzs,
-
-      // Sprint 6 (T6.6): NAT Gateway count reduced from 3 (one per AZ — the
-      // L2 default) to 1. At pilot scale with no third-party allowlists on
-      // the egress IP, the cost saving (~$66/month) materially exceeds the
-      // single-AZ-egress-failure risk. CFN picks which AZ keeps the NAT —
-      // non-deterministic by design ("Option A" per Sprint 6 deploy
-      // runbook). Re-evaluate at scale or before any third-party adds an
-      // IP allowlist.
-      natGateways: 1,
-
-      // Sprint 5 (T5.1): VPC Flow Logs DISABLED for pilot.
-      //
-      // Flow logs at FlowLogTrafficType.ALL ingest every accept and reject
-      // packet — cost was projected at $15-30/month (audit) but realized
-      // CloudWatch Logs line in Cost Explorer is $0.27/month, with the
-      // bulk landing under EC2-Other. At pilot traffic with no active
-      // network-issue investigation, the data is unread.
-      //
-      // Re-enable on demand by re-introducing the flowLogs block (use
-      // FlowLogTrafficType.REJECT for noise-bounded debugging, with
-      // RetentionDays.ONE_WEEK on the destination log group).
-    });
-    cdk.Tags.of(this.vpc).add('sbt-ecs-vpc', 'true');
-
-    // Sprint 5 (T5.4): Gateway VPC Endpoints for S3 and DynamoDB.
-    //
-    // Free at the endpoint layer; only data-transfer is charged. Removes
-    // egress through NAT for S3/DDB API traffic, which directly addresses
-    // the EC2-Other line item (51% of monthly cost). Also eliminates a
-    // large fraction of the data-processing charge per NAT Gateway —
-    // critical setup for the Sprint 6 NAT 3→1 reduction.
-    //
-    // Routes are added automatically to all private-subnet route tables
-    // by the L2 GatewayVpcEndpoint construct.
-    new ec2.GatewayVpcEndpoint(this, 'S3GatewayEndpoint', {
-      vpc: this.vpc,
-      service: ec2.GatewayVpcEndpointAwsService.S3,
-      subnets: [{ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }],
-    });
-    new ec2.GatewayVpcEndpoint(this, 'DynamoDbGatewayEndpoint', {
-      vpc: this.vpc,
-      service: ec2.GatewayVpcEndpointAwsService.DYNAMODB,
-      subnets: [{ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }],
-    });
-
-    this.vpc.privateSubnets.forEach((subnet, index) => {
-      const cfnSubnet = subnet.node.defaultChild as ec2.CfnSubnet;
-      cfnSubnet.addPropertyOverride('CidrBlock', `10.0.${index * 64}.0/18`);
-    });
-    this.vpc.publicSubnets.forEach((subnet, index) => {
-      const cfnSubnet = subnet.node.defaultChild as ec2.CfnSubnet;
-      cfnSubnet.addPropertyOverride('CidrBlock', `10.0.${192 + index}.0/24`);
-    });
-
-    new cdk.CfnOutput(this, 'PrivateSubnetIds', { value: this.vpc.privateSubnets.map(subnet => subnet.subnetId).join(','), exportName: 'PrivateSubnetIds' });
-    new cdk.CfnOutput(this, 'AvailabilityZones', { value: selectedAzs.join(','), exportName:'AvailabilityZones' });
-
-    // use a security group to provide a secure connection between the ALB and the containers
-    this.albSG = new ec2.SecurityGroup(this, 'alb-sg', {
-      vpc: this.vpc,
-      allowAllOutbound: true
-    });
-
-    this.albSG.addIngressRule(
-      ec2.Peer.ipv4(this.vpc.vpcCidrBlock),
-      ec2.Port.tcp(80),
-      'Allow https traffic'
-    );
-
-    // ALB Creation
-    this.alb = new elbv2.ApplicationLoadBalancer(this, 'sbt-ecs-alb', {
-      vpc: this.vpc,
-      internetFacing: false,
-      securityGroup: this.albSG,
-      vpcSubnets: {
-        subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS
-      }
-    });
-
-    this.listener = this.alb.addListener('alb-listener', {
-      open: true,
-      port: 80
-    });
-
-    const nlb = new elbv2.NetworkLoadBalancer(this, 'sbt-ecs-nlb', {
-      vpc: this.vpc,
-      internetFacing: false,
-      crossZoneEnabled: true,
-      vpcSubnets: {
-        subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS
-      }
-    });
-
-    this.nlbListener = nlb.addListener('nlb-listener', {
-      port: 80
-    });
-
-    const nlbTargetGroup = this.nlbListener.addTargets('nlb-targets', {
-      targets: [new targets.AlbListenerTarget(this.listener)], 
-      port: 80,
-      healthCheck: {
-        protocol: elbv2.Protocol.HTTP
-      }
-    });
-
-    nlbTargetGroup.node.addDependency(this.listener);
-
-    const targetGroupHttp = new elbv2.ApplicationTargetGroup(this, 'alb-tg', {
-      port: 80,
-      vpc: this.vpc,
-      protocol: elbv2.ApplicationProtocol.HTTP,
-      targetType: elbv2.TargetType.IP
-    });
-
-    this.listener.addTargetGroups('alb-listener-tg', {
-      targetGroups: [targetGroupHttp]
-    });
 
     const lambdaEcsSaaSLayers = new PythonLayerVersion(this, 'LambdaEcsSaaSLayers', {
       entry: path.join(__dirname, './layers'),
@@ -280,16 +141,10 @@ export class SharedInfraStack extends cdk.Stack {
     });
     
 
-    const vpcLink = new apigateway.VpcLink(this, 'ecs-vpc-link', {
-      targets: [nlb]
-    });
 
     
     this.apiGateway = new ApiGateway(this, 'ApiGateway', {
       lambdaEcsSaaSLayers: lambdaEcsSaaSLayers,
-      stageName: props.stageName,
-      nlb,
-      vpcLink: vpcLink,
       corsAllowedOrigins: props.corsAllowedOrigins,
       apiKeyBasicTier: {
         apiKeyId: basicKey.keyId,
@@ -304,21 +159,7 @@ export class SharedInfraStack extends cdk.Stack {
         value: premiumKey.keyId
       }
     });
-    
 
-    new cdk.CfnOutput(this, 'EcsVpcId', {
-      value: this.vpc.vpcId,
-      exportName: 'EcsVpcId'
-    });
-
-    this.vpc.privateSubnets.forEach((subnet, index) => {
-      new cdk.CfnOutput(this, `PrivSub${index+1}RouteId`, {
-        value: subnet.routeTable.routeTableId,
-        exportName: `PrivSub${index+1}RouteId`,
-        description: `Private Subnet ${index+1} Router ID`,
-      });
-    });
-    
     //**Provider Admin Cloudfront */
     this.accessLogsBucket = new cdk.aws_s3.Bucket(this, 'AccessLogsBucket', {
       enforceSSL: true,
@@ -356,12 +197,6 @@ export class SharedInfraStack extends cdk.Stack {
 
     // Create Usage Plans for API rate limiting
     
-    new UsagePlans(this, 'UsagePlans', {
-      apiGateway: this.apiGateway.restApi,
-      apiKeyBasicTier: basicKey,
-      apiKeyAdvancedTier: advanceKey,
-      apiKeyPremiumTier: premiumKey
-    });
 
     // Cost-redesign C2.4 — API-B beside API-A. Additive: API-A's RestApi,
     // Stage and Deployment do not change; the authorizer function gains one
@@ -370,8 +205,6 @@ export class SharedInfraStack extends cdk.Stack {
     // are literals here and no cross-stack reference is needed.
     this.apiGatewayLambda = new ApiGatewayLambda(this, 'ApiGatewayLambda', {
       stageName: props.stageName,
-      nlb,
-      vpcLink,
       corsAllowedOrigins: props.corsAllowedOrigins,
       authorizerFunction: this.apiGateway.authorizerFunction,
       functionNames: stageVariableFunctionNames('basic'),
@@ -397,52 +230,16 @@ export class SharedInfraStack extends cdk.Stack {
     // ============================================
 
     //**Output */
-    new cdk.CfnOutput(this, 'ALBDnsName', {
-      value: this.alb.loadBalancerDnsName,
-      exportName: 'ALBDnsName'
-    });
-    new cdk.CfnOutput(this, 'ALBArn', {
-      value: this.alb.loadBalancerArn,
-      exportName: 'ALBArn'
-    });
 
-    new cdk.CfnOutput(this, 'AlbSgId', {
-      value: this.albSG.securityGroupId,
-      exportName: 'AlbSgId'
-    });
 
-    new cdk.CfnOutput(this, 'ListenerArn', {
-      value: this.listener.listenerArn,
-      exportName: 'ListenerArn'
-    });
 
     // Export API Gateway and site URLs for client applications
     
-    new cdk.CfnOutput(this, 'ApiGatewayUrl', {
-      value: this.apiGateway.restApi.url,
-      description: 'Tenant API Gateway URL (REST API) for SaaS application',
-      exportName: 'ApiGatewayUrl'  // New export name for cross-stack references
-    });
 
     // Cross-stack handles for downstream stacks (e.g., analytics-stack) that
     // attach additional methods to this REST API via
     // `RestApi.fromRestApiAttributes(...)`. Exporting the API id and root
     // resource id keeps stacks decoupled and account-portable.
-    new cdk.CfnOutput(this, 'TenantApiRestApiId', {
-      value: this.apiGateway.restApi.restApiId,
-      description: 'Tenant API Gateway REST API id (for downstream stacks attaching routes)',
-      exportName: 'TenantApiRestApiId',
-    });
-    new cdk.CfnOutput(this, 'TenantApiRootResourceId', {
-      value: this.apiGateway.restApi.restApiRootResourceId,
-      description: 'Tenant API Gateway root resource id (/) — used by downstream stacks',
-      exportName: 'TenantApiRootResourceId',
-    });
-    new cdk.CfnOutput(this, 'TenantApiAuthorizerArn', {
-      value: this.apiGateway.authorizerFunction.functionArn,
-      description: 'Shared tenant API Lambda authorizer ARN — reuse from downstream stacks',
-      exportName: 'TenantApiAuthorizerArn',
-    });
 
     new cdk.CfnOutput(this, 'adminSiteUrl', {
       value: this.adminSiteUrl,

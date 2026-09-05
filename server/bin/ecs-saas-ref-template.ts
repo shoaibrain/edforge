@@ -53,11 +53,7 @@ if (!process.env.CDK_PARAM_TENANT_ID) {
   console.log('Tenant ID is empty, a default tenant id "basic" will be assigned');
 }
 const basicId = 'basic';
-const AzCount = 3;
 const basicName = 'basic';
-if(AzCount < 2 || AzCount > 3) {
-  throw new Error('Availability Zones count must be between 2 and 3 (inclusive). Current value: ' + AzCount);
-}
 // required input parameters
 const systemAdminEmail = process.env.CDK_PARAM_SYSTEM_ADMIN_EMAIL;
 const tenantId = process.env.CDK_PARAM_TENANT_ID || basicId;
@@ -66,12 +62,6 @@ const useFederation = process.env.CDK_PARAM_USE_FEDERATION || 'true';
 
 const commitId = getEnv('CDK_PARAM_COMMIT_ID');
 const tier = getEnv('CDK_PARAM_TIER');
-
-// Determine useEc2 based on tier using environment variables directly
-const useEc2 = tier === 'PREMIUM' ? process.env.CDK_PARAM_USE_EC2_PREMIUM === 'true' :
-              tier === 'ADVANCED' ? process.env.CDK_PARAM_USE_EC2_ADVANCED === 'true' :
-              process.env.CDK_PARAM_USE_EC2_BASIC === 'true';
-const useRProxy = process.env.CDK_PARAM_USE_RPROXY !== 'false';
 
 // default values for optional input parameters
 const defaultStageName = 'prod';
@@ -163,7 +153,6 @@ const operatorAlertEmail =
 
 const sharedInfraStack = new SharedInfraStack(app, 'shared-infra-stack', {
   stageName: stageName,
-  azCount: AzCount,
   corsAllowedOrigins: corsAllowedOrigins,
   sesSendingDomain,
   sesMailFromDomain,
@@ -213,7 +202,6 @@ const analyticsStack = new AnalyticsStack(app, 'analytics-stack', {
   apiBInvokePermission: process.env.CDK_PARAM_LAMBDA_SERVICES === 'true',
   analyticsEnabled,
   // Phase 4 (Sprint I-2) — pilot observability inputs
-  albLoadBalancerFullName: sharedInfraStack.alb.loadBalancerFullName,
   tenantSeederLambda: controlPlaneStack.tenantSeeder.lambda,
   // CORS origins for the pdfAssetsBucket — operator-supplied via
   // CDK_PARAM_CORS_ALLOWED_ORIGINS so EdForge ships no hardcoded
@@ -237,8 +225,6 @@ const tenantTemplateStack = new TenantTemplateStack(app, `tenant-template-stack-
   corsAllowedOrigins: corsAllowedOrigins,
   eventBusName: controlPlaneStack.eventBusName, // SBT Event Bus for microservices
   useFederation: useFederation,
-  useEc2: useEc2,
-  useRProxy: useRProxy,
   // Cost-redesign C1.6 — Lambda functions per service alongside ECS. Off by
   // default; scripts/deploy.sh builds the bundles when the flag is on.
   lambdaServices: process.env.CDK_PARAM_LAMBDA_SERVICES === 'true',
@@ -296,8 +282,6 @@ if (shouldSynthesizeAdvancedTemplate()) {
     corsAllowedOrigins: corsAllowedOrigins,
     eventBusName: controlPlaneStack.eventBusName, // SBT Event Bus for microservices
     useFederation: useFederation,
-    useEc2: process.env.CDK_PARAM_USE_EC2_ADVANCED === 'true',
-    useRProxy: false,
     env
   });
   advancedTierTempStack.addDependency(sharedInfraStack);
