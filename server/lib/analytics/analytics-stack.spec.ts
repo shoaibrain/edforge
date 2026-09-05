@@ -526,16 +526,12 @@ describe('AnalyticsStack — Layer 2 CDK template assertions', () => {
   });
 });
 
-describe('API-B invoke permission (cost-redesign C2.7)', () => {
+describe('API-B invoke permission (cost-redesign C2.7, unconditional since C8.5)', () => {
   const apiBPermission = (t: Template) =>
     Object.values(t.findResources('AWS::Lambda::Permission')).filter((r) => JSON.stringify(r.Properties.SourceArn ?? '').includes('TenantApiLambdaRestApiId'));
 
-  it('is absent by default (API-A attach unchanged)', () => {
-    expect(apiBPermission(synth())).toHaveLength(0);
-  });
-
-  it('grants apigateway.amazonaws.com on the API function scoped to the imported API-B id when enabled', () => {
-    const perms = apiBPermission(synth({ apiBInvokePermission: true }));
+  it('grants apigateway.amazonaws.com on the API function scoped to the imported API-B id', () => {
+    const perms = apiBPermission(synth());
     expect(perms).toHaveLength(1);
     expect(perms[0].Properties.Principal).toBe('apigateway.amazonaws.com');
     expect(JSON.stringify(perms[0].Properties.SourceArn)).toContain('/*/*/*');

@@ -199,7 +199,6 @@ const analyticsEnabled = process.env.CDK_PARAM_ANALYTICS_ENABLED || 'false';
 const analyticsStack = new AnalyticsStack(app, 'analytics-stack', {
   eventBusName: controlPlaneStack.eventBusName,
   operatorAlertEmail,
-  apiBInvokePermission: process.env.CDK_PARAM_LAMBDA_SERVICES === 'true',
   analyticsEnabled,
   // Phase 4 (Sprint I-2) — pilot observability inputs
   tenantSeederLambda: controlPlaneStack.tenantSeeder.lambda,
@@ -227,8 +226,6 @@ const tenantTemplateStack = new TenantTemplateStack(app, `tenant-template-stack-
   useFederation: useFederation,
   // Cost-redesign C1.6 — Lambda functions per service alongside ECS. Off by
   // default; scripts/deploy.sh builds the bundles when the flag is on.
-  lambdaServices: process.env.CDK_PARAM_LAMBDA_SERVICES === 'true',
-  financeSchedulesEnabled: process.env.CDK_PARAM_FINANCE_SCHEDULES === 'enabled',
   apiJobsTransport: process.env.CDK_PARAM_API_JOBS_TRANSPORT === 'sqs' ? 'sqs' : undefined,
   sesEnabled,
   sesFromEmail,

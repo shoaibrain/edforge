@@ -175,10 +175,9 @@ IAM must be in place before new code that uses it runs).
 | DDB schema / GSI ([ecs-dynamodb.ts](server/lib/tenant-template/ecs-dynamodb.ts)) | `tenant-template-stack-basic` | 1 (infra) |
 | ABAC DDB action (same file) | `tenant-template-stack-basic` | 1 |
 | IAM policy (non-DDB) in [service-info.txt](server/service-info.txt) | `tenant-template-stack-basic` | 1 |
-| Task def env var in `service-info.txt` | `tenant-template-stack-basic` | 1 |
-| API Gateway route ([tenant-api-prod.json](server/lib/tenant-api-prod.json)) | `shared-infra-stack` | 1 |
-| NestJS controller / service code (identity/academics/finance) | ECR push + ECS rolling update | 2 (app) |
-| Reverse proxy route ([nginx.template](server/application/reverseproxy/nginx.template)) | ECR push + ECS rolling update for rproxy | 2 |
+| Service env var in `service-info.txt` (feeds the functions' environment) | `tenant-template-stack-basic` | 1 |
+| API Gateway route ([tenant-api-prod.json](server/lib/tenant-api-prod.json) + [route-map.json](server/lib/route-map.json), then `npm run openapi:generate`) | `shared-infra-stack` (API-B is generated from both) | 1 |
+| NestJS controller / service code (identity/academics/finance) | `tenant-template-stack-basic` — `scripts/deploy.sh` builds the function bundles from the worktree and the stack ships them (no ECR, no ECS since cost-redesign Sprint 6) | 1 |
 | Analytics Lambda code ([server/lib/analytics/lambda/](server/lib/analytics/lambda/)) | `analytics-stack` | 1 (CDK bundles Lambdas) |
 | tenant-seeder Lambda ([tenant-seeder-lambda.ts](server/lib/bootstrap-template/tenant-seeder-lambda.ts)) | **`controlplane-stack`** (lambda is instantiated inside ControlPlane, not core-appplane) | 1 |
 | Provisioning script ([provision-tenant.sh](server/lib/provision-scripts/provision-tenant.sh)) | `core-appplane-stack` (script is read from disk at synth via `fs.readFileSync` and embedded in SBT ScriptJob) **PLUS** upload source tarball via [scripts/utils/update-provision-source.sh](scripts/utils/update-provision-source.sh) (CodeBuild downloads it at runtime) | 0 (source tarball first) then 1 |
@@ -186,11 +185,12 @@ IAM must be in place before new code that uses it runs).
 | Cognito config | `controlplane-stack` | 1 |
 | AdminWeb React code | CodePipeline rebuild via `controlplane-stack` (no direct S3 sync) | 1 |
 | Shared types (`@aibrains/shared-types`) — adding exports consumed by **AdminWeb** | `npm publish` the new version, then redeploy `controlplane-stack` so CodePipeline rebuilds AdminWeb. Workspace symlinks are invisible to CodeBuild. | 0 (publish) then 1 |
-| Shared types — ECS-services-only consumers | None (workspace symlink resolves at local `nest build`; no publish needed) | 0 |
-| Tenant locale defaults ([packages/shared-types/src/locale/tenant-locale-defaults.ts](packages/shared-types/src/locale/tenant-locale-defaults.ts)) | Bump + `npm publish` `@aibrains/shared-types`, then **`controlplane-stack`** redeploy (synth-time JSON inlined into tenant-seeder Lambda) + identity ECR push (entity has hand-duplicated copy). | 0 (publish) then 1 then 2 (ECS) |
+| Shared types — service-only consumers | None (the function bundles resolve the workspace symlink at build time; no publish needed) | 0 |
+| Tenant locale defaults ([packages/shared-types/src/locale/tenant-locale-defaults.ts](packages/shared-types/src/locale/tenant-locale-defaults.ts)) | Bump + `npm publish` `@aibrains/shared-types`, then **`controlplane-stack`** redeploy (synth-time JSON inlined into tenant-seeder Lambda) + `tenant-template-stack-basic` (the identity entity has a hand-duplicated copy). | 0 (publish) then 1 |
 
-**Rule of thumb:** when in doubt, run `npx cdk diff <stack>` first. If the
-diff is empty, no CDK deploy needed — just the ECR push + ECS rolling update.
+**Rule of thumb:** when in doubt, run `npx cdk diff <stack>` first. A service
+code change always shows as a new function asset on `tenant-template-stack-basic`;
+an empty diff means nothing to deploy.
 
 ---
 
@@ -203,7 +203,7 @@ in the multi-hour CFN rollback window instead.
 ### Typecheck
 
 ```bash
-# Backend NestJS service (identity example — substitute academics/finance/rproxy)
+# Backend NestJS service (identity example — substitute academics/finance)
 cd server/application && npx nest build identity
 
 # CDK app (server/bin + server/lib). `nest build` does NOT compile this, and
@@ -451,33 +451,41 @@ Lambda and the BsDatePicker UI component.
 The following are the failure modes that have bitten the team most often.
 Every one is captured here because each was discovered the hard way.
 
-### Three-way route registration
+### Two-way route registration (three files, one generated)
 
-Every new API route touches **three** files in lockstep, not one:
+Every new API route touches the controller and the source spec; the API-B
+spec is generated from them:
 
 1. The NestJS controller method (`@Get / @Post / @Patch / @Delete`
-   decorator) — what most engineers think of first.
+   decorator).
 2. **[server/lib/tenant-api-prod.json](server/lib/tenant-api-prod.json)** —
-   the API Gateway OpenAPI spec is **hand-maintained**, NOT auto-derived
-   from the NestJS controllers. A missing route here gives `403 SigV4` on
-   the smoke (because API GW falls through to its IAM auth default rather
-   than reaching the Cognito-authed service).
-3. **[server/application/reverseproxy/nginx.template](server/application/reverseproxy/nginx.template)**
-   — only if the path prefix is **new** (e.g., a new top-level resource
-   like `/parents`). Existing prefixes (`/schools`, `/users`, `/tenants`,
-   …) auto-cover sub-paths via their `location ~ ^/<prefix>` block. A
-   missing route here gives `404` from nginx.
+   the hand-maintained OpenAPI source (NOT auto-derived from the controllers),
+   plus [route-map.json](server/lib/route-map.json), which maps each top-level
+   prefix to the function that serves it (`identityFn`, `academicsFn`,
+   `financeFn`, `analyticsFn`). Then run `npm run openapi:generate` and commit
+   the regenerated [tenant-api-lambda.json](server/lib/tenant-api-lambda.json);
+   `npm run openapi:check` and `npm run lint:routes` fail CI when either is
+   stale. A new top-level prefix needs a `route-map.json` entry or the
+   generator refuses it.
+
+There is no reverse proxy any more (cost-redesign Sprint 6): API Gateway
+invokes the service functions directly through stage variables.
 
 **Symptom diagnosis post-deploy:**
 
-- `403 SigV4` → API GW route missing.
-- `404` with `nginx/…` server header → rproxy route missing.
+- `403` with `{"message":"Missing Authentication Token"}` or an
+  `Invalid key=value pair … Authorization header` body → the route is not in
+  the deployed API-B spec (API GW fell through to IAM auth).
 - `404` JSON body from the NestJS service → controller missing or path
   typo'd.
+- A PDF or zip arriving as base64 text → the client did not send an
+  `Accept` naming a binary media type (API Gateway decodes a Lambda proxy's
+  base64 body only then); the frontend sends `Accept: application/pdf` on
+  PDF downloads for this reason.
 
-The follow-up route-drift linter in
-[scripts/check-route-drift.ts](scripts/check-route-drift.ts) enforces this
-at build time; run it before any PR that adds an endpoint.
+The route-drift linter in [scripts/check-route-drift.ts](scripts/check-route-drift.ts)
+enforces the Nest ⇄ spec ⇄ function contract; run it before any PR that adds
+an endpoint.
 
 ### Cross-service DDB access needs an IAM grant (sibling of route-drift)
 

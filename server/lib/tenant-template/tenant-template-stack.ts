@@ -49,14 +49,6 @@ interface TenantTemplateStackProps extends cdk.StackProps {
   eventBusName: string; // SBT Event Bus Name for microservice domain events
   useFederation: string;
   /**
-   * Cost-redesign C1.6 — also deploy each service as a Lambda function
-   * (edforge-<svc>-<tier>-api) built by scripts/build-lambda.sh. Off by
-   * default: with the flag unset the synthesized template is unchanged.
-   */
-  lambdaServices?: boolean;
-  /** CDK_PARAM_FINANCE_SCHEDULES=enabled — flips the finance timers' schedules on (C3.5 order: after the ECS timers are off). */
-  financeSchedulesEnabled?: boolean;
-  /**
    * CDK_PARAM_API_JOBS_TRANSPORT=sqs — the API functions (API-B, preview) hand
    * bulk jobs to the queue workers while the containers keep the transport in
    * service-info: a canary for the worker path before the production flip.
@@ -182,10 +174,7 @@ export class TenantTemplateStack extends cdk.Stack {
         this.createAbacRole(info, storage, identityProvider, props.tier);
       });
 
-      // Cost-redesign C1.6 — Lambda functions alongside the ECS services.
-      // Same ABAC role, same grants, same environment (+ EDFORGE_RUNTIME);
-      // nothing routes to them until the strangler API (Sprint 2).
-      if (props.lambdaServices) {
+      {
         const sharpLayer = new lambda.LayerVersion(this, "SharpLayer", {
           code: lambda.Code.fromAsset(this.lambdaAssetPath("layers/sharp")),
           compatibleRuntimes: [lambda.Runtime.NODEJS_22_X],
@@ -332,7 +321,7 @@ export class TenantTemplateStack extends cdk.Stack {
               additionalPolicyJson: TenantTemplateStack.renderAdditionalPolicy(info, identityProvider),
               additionalPolicyId: `${info.name}ScheduledAdditionalPolicy`,
             });
-            new FinanceSchedules(this, "FinanceSchedules", { fn: scheduled.fn, enabled: props.financeSchedulesEnabled === true });
+            new FinanceSchedules(this, "FinanceSchedules", { fn: scheduled.fn, enabled: true });
             // C3.7 — the bulk jobs queue and its worker (index.workerHandler, 3,008 MB,
             // 900 s, sharp for the PDF exports). The API function and the ECS task
             // send; the worker consumes; JOBS_TRANSPORT (task definition) decides
@@ -906,7 +895,7 @@ export class TenantTemplateStack extends cdk.Stack {
     const dir = path.resolve(__dirname, "../../application/dist-lambda", name);
     if (!fs.existsSync(path.join(dir, name.startsWith("layers/") ? "nodejs" : "index.js"))) {
       throw new Error(
-        `Lambda asset ${dir} is missing — run scripts/build-lambda.sh <svc> (and build-sharp-layer.sh) before synthesizing with CDK_PARAM_LAMBDA_SERVICES=true`,
+        `Lambda asset ${dir} is missing — run scripts/build-lambda.sh <svc> and build-sharp-layer.sh before synthesizing (scripts/deploy.sh does this)`,
       );
     }
     return dir;
