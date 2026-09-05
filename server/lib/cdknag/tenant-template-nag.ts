@@ -14,10 +14,8 @@ import { NagSuppressions } from "cdk-nag";
  */
 export interface TenantInfraNagProps {
   tenantId: string;
-  isEc2Tier: boolean;
   tier: string;
   advancedCluster: string;
-  isRProxy: boolean;
 }
 
 export class TenantTemplateNag extends Construct {
@@ -34,9 +32,6 @@ export class TenantTemplateNag extends Construct {
     this.addLambdaSuppressions(props, nagPath);
 
     // EC2 mode specific suppressions
-    if (props.isEc2Tier) {
-      this.addEc2Suppressions(props, nagEcsPath);
-    }
 
     // Service suppressions - apply for all cases where services are deployed
     // This covers: basic tier, premium tier, and advanced tier (both INACTIVE and ACTIVE)
@@ -460,107 +455,5 @@ export class TenantTemplateNag extends Construct {
       );
     }
 
-    // rProxy suppressions
-    if (props.isRProxy) {
-      try {
-        NagSuppressions.addResourceSuppressionsByPath(
-          cdk.Stack.of(this),
-          [`${nagPath}/rproxy-EcsServices/rproxy-TaskDef/Resource`],
-          [
-            {
-              id: "AwsSolutions-ECS2",
-              reason:
-                "SaaS reference architecture - Environment variables acceptable for demo",
-            },
-          ]
-        );
-      } catch (error) {
-        console.log(
-          "rProxy Task Definition resource not found, skipping suppression"
-        );
-      }
-
-      try {
-        NagSuppressions.addResourceSuppressionsByPath(
-          cdk.Stack.of(this),
-          [
-            `${nagPath}/rproxy-EcsServices/ecsTaskExecutionRole-${props.tenantId}/Resource`,
-          ],
-          [
-            {
-              id: "AwsSolutions-IAM4",
-              reason:
-                "SaaS reference architecture - AWS managed policies acceptable for demo",
-              appliesTo: [
-                "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
-              ],
-            },
-          ]
-        );
-      } catch (error) {
-        console.log(
-          "rProxy Task Execution Role resource not found, skipping suppression"
-        );
-      }
-
-      try {
-        NagSuppressions.addResourceSuppressionsByPath(
-          cdk.Stack.of(this),
-          `${nagPath}/rProxy-taskRole/Resource`,
-          [
-            {
-              id: "AwsSolutions-IAM4",
-              reason:
-                "SaaS reference architecture - AWS managed policies acceptable for demo",
-              appliesTo: [
-                "Policy::arn:<AWS::Partition>:iam::aws:policy/CloudWatchAgentServerPolicy",
-                "Policy::arn:<AWS::Partition>:iam::aws:policy/CloudWatchFullAccess",
-              ],
-            },
-          ]
-        );
-      } catch (error) {
-        console.log(
-          "rProxy Task Role resource not found, skipping suppression"
-        );
-      }
-
-      try {
-        NagSuppressions.addResourceSuppressionsByPath(
-          cdk.Stack.of(this),
-          `${nagPath}/rProxy-taskRole/DefaultPolicy/Resource`,
-          [
-            {
-              id: "AwsSolutions-IAM5",
-              reason:
-                "SaaS reference architecture - Wildcard permissions acceptable for demo",
-              appliesTo: ["Resource::*"],
-            },
-          ]
-        );
-      } catch (error) {
-        console.log(
-          "rProxy Task Role Default Policy resource not found, skipping suppression"
-        );
-      }
-
-      try {
-        NagSuppressions.addResourceSuppressionsByPath(
-          cdk.Stack.of(this),
-          [`${nagPath}/rproxy-TaskDef/Resource`],
-          [
-            {
-              id: "AwsSolutions-ECS2",
-              reason:
-                "SaaS reference architecture - Environment variables acceptable for demo",
-            },
-          ]
-        );
-      } catch (error) {
-        console.log(
-          "rProxy Task Definition resource not found, skipping suppression"
-        );
-      }
-    }
   }
 }

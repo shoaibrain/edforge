@@ -67,12 +67,6 @@ const useFederation = process.env.CDK_PARAM_USE_FEDERATION || 'true';
 const commitId = getEnv('CDK_PARAM_COMMIT_ID');
 const tier = getEnv('CDK_PARAM_TIER');
 
-// Determine useEc2 based on tier using environment variables directly
-const useEc2 = tier === 'PREMIUM' ? process.env.CDK_PARAM_USE_EC2_PREMIUM === 'true' :
-              tier === 'ADVANCED' ? process.env.CDK_PARAM_USE_EC2_ADVANCED === 'true' :
-              process.env.CDK_PARAM_USE_EC2_BASIC === 'true';
-const useRProxy = process.env.CDK_PARAM_USE_RPROXY !== 'false';
-
 // default values for optional input parameters
 const defaultStageName = 'prod';
 
@@ -237,8 +231,6 @@ const tenantTemplateStack = new TenantTemplateStack(app, `tenant-template-stack-
   corsAllowedOrigins: corsAllowedOrigins,
   eventBusName: controlPlaneStack.eventBusName, // SBT Event Bus for microservices
   useFederation: useFederation,
-  useEc2: useEc2,
-  useRProxy: useRProxy,
   // Cost-redesign C1.6 — Lambda functions per service alongside ECS. Off by
   // default; scripts/deploy.sh builds the bundles when the flag is on.
   lambdaServices: process.env.CDK_PARAM_LAMBDA_SERVICES === 'true',
@@ -296,8 +288,6 @@ if (shouldSynthesizeAdvancedTemplate()) {
     corsAllowedOrigins: corsAllowedOrigins,
     eventBusName: controlPlaneStack.eventBusName, // SBT Event Bus for microservices
     useFederation: useFederation,
-    useEc2: process.env.CDK_PARAM_USE_EC2_ADVANCED === 'true',
-    useRProxy: false,
     env
   });
   advancedTierTempStack.addDependency(sharedInfraStack);

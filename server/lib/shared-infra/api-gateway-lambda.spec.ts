@@ -92,7 +92,7 @@ describe('ApiGatewayLambda (C2.4)', () => {
         else if (i.type === 'http_proxy') { http++; expect(i.uri).toMatch(/^http:\/\/\$\{stageVariables\.nlbDns\}\/finance\//); expect(i.connectionId).toBe('${stageVariables.vpcLinkId}'); }
       }
     }
-    expect({ aws, http, mock }).toEqual({ aws: 346, http: 70, mock: 287 });
+    expect({ aws, http, mock }).toEqual({ aws: 416, http: 0, mock: 287 });
     expect(body).toContain("'https://app.example.test'");
   });
 
