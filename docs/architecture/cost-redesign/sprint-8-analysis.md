@@ -115,13 +115,14 @@ since the final Sprint 3 deploy.
 
 ## Execution
 
-Deploy order: `tenant-template-stack-basic` (GSI15 + the services that write
-it), then `analytics-stack` (janitors, aggregator, alarm), then the CDK bump
-across the remaining stacks. Each step: `cdk diff` reviewed, deploy with the
-wrapper, verification below. Filled in as executed.
+Executed 2026-09-05, 17:36–17:52 UTC, in the order tenant-template (106 s),
+analytics (42 s), shared-infra (41 s), core-appplane (15 s), controlplane
+(48 s); each preceded by a reviewed `cdk diff`. GSI15 was ACTIVE on all three
+tables within two minutes of the tenant update and the analytics deploy
+waited for it, since a Query against a backfilling index is rejected.
 
 | Step | Verification |
 |---|---|
-| tenant-template | Diff shows `GlobalSecondaryIndexes` +GSI15 on the three tables and new function bundles, nothing else; `describe-table` reports GSI15 `ACTIVE`; a bulk job run end to end leaves no row with gsi15 keys |
-| analytics | Janitor `REPORT` lines show a Query, not a Scan; `ConsumedReadCapacityUnits` on both tables falls to traffic only; `edforge-analytics-functions-errors` returns to OK within 15 minutes of the deploy; a login lands as `auth.login.success` |
-| CDK bump | Every helper function on a current runtime; shared-infra authorizer answers 401/200; controlplane's AdminWeb pipeline execution succeeds and the console loads |
+| tenant-template | ✅ Diff: GSI15 on the three tables, academics and finance bundles, two helper runtimes, alarm labels, commit stamp. GSI15 `ACTIVE` ×3; no running job, none without keys; API-B 401 probes on all prefixes; zero function errors afterwards. The end-to-end job run (keys present while running, gone after) is the next operator bulk job |
+| analytics | ✅ Schedules `cron(*/15 * * * ? *)`; janitor roles hold Query on `/index/GSI15` and UpdateItem on the table, no Scan; the 17:45 sweeps completed with zero candidates and no errors (a Scan would now be AccessDenied); the academics table's read buckets read 0 from the first sweep; `edforge-analytics-functions-errors` OK at 17:44 after eleven days in ALARM; no new dead letters |
+| CDK bump | ✅ Every helper on `nodejs24.x`, the bucket-deployment handler on `python3.13`; the authorizer on its rebuilt layer answers 401 with zero errors; the AdminWeb bucket deployment re-ran (6 s), found the source unchanged and did not start the pipeline |

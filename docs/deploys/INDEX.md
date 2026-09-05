@@ -29,6 +29,35 @@ operator-specific deployment evidence. The entries below preserve durable public
 status without raw log links, account IDs, ARNs, tenant UUIDs, operator emails,
 JWT claims, or environment-specific hostnames.
 
+### 2026-09-05 — Cost redesign Sprint 8, part 2: janitors off the table scan, aggregator dead letters, CDK library current — Green
+
+- **Scope:** PR #454 (C8.8, C8.1, D8.4), deployed the same afternoon the
+  inspection found the defects; findings and decisions in
+  `docs/architecture/cost-redesign/sprint-8-analysis.md`. Every stack was
+  diffed against production first; the one DynamoDB line (a sparse index
+  added in place on the three tenant tables) was the expected one.
+- **tenant-template (106 s):** GSI15 (`gsi15pk` / `gsi15sk`) on the
+  identity, academics and finance tables, built online in under two minutes
+  on the existing data; academics and finance bundles that write the keys in
+  `markRunning` and remove them on every terminal transition; the two CDK
+  helper functions on `nodejs24.x`. No job was running during the update
+  and no running row lacks the keys.
+- **analytics (42 s):** both janitors Query GSI15 every 15
+  minutes (IAM narrowed to Query on the index and UpdateItem on the table);
+  the aggregator maps the Cognito-trigger `LoginSuccess`, logs and drops
+  unmapped event types, retries `TransactionConflict`; the analytics
+  functions alarm watches new dead letters, not queue depth. The first Query-based sweeps ran at the 17:45 UTC slot with zero candidates and no errors; the alarm returned to OK at its first evaluation with the new term; the academics table's read bucket fell to zero in the first five-minute window after the deploy.
+- **shared-infra (41 s), core-appplane (15 s), controlplane
+  (48 s):** library bump only — helper functions on `nodejs24.x`, the
+  authorizer's layer rebuilt (boto3 patch release, identical file set), the
+  AdminWeb bucket-deployment handler on `python3.13`; the controlplane
+  update re-ran the AdminWeb bucket deployment (six seconds), which found the
+  source unchanged and wrote no new object, so the AdminWeb pipeline did not
+  start; the console served over CloudFront throughout.
+- **Account afterwards:** no Lambda on a deprecated runtime; DynamoDB reads
+  on the academics and finance tables down to traffic only (the academics table's five-minute read buckets read zero from the first sweep on; the janitor roles can no longer Scan at all);
+  ten alarms, all OK once the analytics alarm's 15-minute window passed.
+
 ### 2026-09-05 — Cost redesign Sprint 6: VPC-resident infrastructure torn down — Green
 
 - **Scope:** PR #452 (C6.1–C6.6), run overnight on the operator's

@@ -149,10 +149,10 @@ size. Sprint 8 replaces the Scan with a Query on the sparse running-jobs
 index (GSI15, populated only while a job is `running`) at a 15-minute
 cadence; the row below is filled in after the deploy.
 
-| After the change | Read units / 24 h | Notes |
+| After the change (deployed 2026-09-05 17:43 UTC) | Read units / 24 h | Notes |
 |---|---:|---|
-| edforge-academics-basic | _pending_ | |
-| edforge-finance-basic | _pending_ | |
+| edforge-academics-basic | _first full day pending_ | five-minute buckets read 0 from the first sweep; the janitor role can no longer Scan |
+| edforge-finance-basic | _first full day pending_ | remaining reads are the hourly schedules and traffic |
 
 ### What remains on the bill (estimates from August unit prices and the last 24 hours)
 
