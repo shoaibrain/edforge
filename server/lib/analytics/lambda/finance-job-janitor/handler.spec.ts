@@ -8,7 +8,7 @@
  *   - ConditionalCheckFailedException — counts as `conditionalSkips`, not error
  *   - generic DDB error during update — recorded in errors, alert still sent
  *   - missing env vars — handler throws (configuration error)
- *   - Scan FilterExpression carries FINANCE_JOB entity type and running status
+ *   - the GSI15 Query carries FINANCE_JOB entity type and running status
  */
 
 const ddbDocSend = jest.fn();
@@ -44,7 +44,7 @@ jest.mock('@aws-sdk/client-sns', () => {
   };
 });
 
-import type { ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import type { QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import type { PublishCommand } from '@aws-sdk/client-sns';
 
 const ENV = {
@@ -83,7 +83,7 @@ describe('finance-job-janitor handler', () => {
     expect(snsSend).not.toHaveBeenCalled();
     expect(ddbDocSend).toHaveBeenCalledTimes(1);
     const scanCall = ddbDocSend.mock.calls[0][0];
-    expect(scanCall.constructor.name).toBe('ScanCommand');
+    expect(scanCall.constructor.name).toBe('QueryCommand');
   });
 
   it('marks one orphan failed and publishes SNS summary', async () => {
@@ -123,6 +123,9 @@ describe('finance-job-janitor handler', () => {
     expect((updateCall as UpdateCommand).input.UpdateExpression).toContain(
       ':failed',
     );
+    expect((updateCall as UpdateCommand).input.UpdateExpression).toContain(
+      'REMOVE gsi15pk, gsi15sk',
+    );
 
     expect(snsSend).toHaveBeenCalledTimes(1);
     const publishCall = snsSend.mock.calls[0][0];
@@ -130,7 +133,7 @@ describe('finance-job-janitor handler', () => {
     expect((publishCall as PublishCommand).input.Subject).toContain('1 orphan');
   });
 
-  it('paginates Scan when LastEvaluatedKey is set', async () => {
+  it('paginates the GSI15 Query when LastEvaluatedKey is set', async () => {
     ddbDocSend
       .mockResolvedValueOnce({
         Items: [
@@ -169,7 +172,7 @@ describe('finance-job-janitor handler', () => {
     expect(result.marked).toBe(2);
 
     expect(ddbDocSend).toHaveBeenCalledTimes(4);
-    const secondScan = ddbDocSend.mock.calls[1][0] as ScanCommand;
+    const secondScan = ddbDocSend.mock.calls[1][0] as QueryCommand;
     expect(secondScan.input.ExclusiveStartKey).toEqual({
       tenantId: 'tenant-a',
       entityKey: 'FINANCE_JOB#job-a',
@@ -205,6 +208,14 @@ describe('finance-job-janitor handler', () => {
       errors: [],
     });
     expect(snsSend).not.toHaveBeenCalled();
+
+    // The row left `running` without dropping its GSI15 keys: the janitor
+    // detaches it so the next sweep does not read it again.
+    expect(ddbDocSend).toHaveBeenCalledTimes(3);
+    const detach = ddbDocSend.mock.calls[2][0] as UpdateCommand;
+    expect(detach.constructor.name).toBe('UpdateCommand');
+    expect(detach.input.UpdateExpression).toBe('REMOVE gsi15pk, gsi15sk');
+    expect(detach.input.ConditionExpression).toBe('#status <> :running');
   });
 
   it('records generic UpdateItem errors and STILL publishes SNS so operator sees the failure', async () => {
@@ -260,21 +271,23 @@ describe('finance-job-janitor handler', () => {
     );
   });
 
-  it('Scan FilterExpression carries FINANCE_JOB entity type and running status', async () => {
+  it('queries GSI15 for FINANCE_JOB rows running since before the cutoff (no Scan)', async () => {
     ddbDocSend.mockResolvedValueOnce({ Items: [] });
 
     const { handler } = await import('./handler');
     await handler();
 
-    const scanCall = ddbDocSend.mock.calls[0][0] as ScanCommand;
-    expect(scanCall.input.FilterExpression).toBe(
-      'entityType = :et AND #status = :running AND createdAt < :cutoff',
+    const queryCall = ddbDocSend.mock.calls[0][0] as QueryCommand;
+    expect(queryCall.constructor.name).toBe('QueryCommand');
+    expect(queryCall.input.IndexName).toBe('GSI15');
+    expect(queryCall.input.KeyConditionExpression).toBe(
+      'gsi15pk = :pk AND gsi15sk < :cutoff',
     );
-    expect(scanCall.input.ExpressionAttributeValues).toMatchObject({
-      ':et': 'FINANCE_JOB',
-      ':running': 'running',
+    expect(queryCall.input.FilterExpression).toBeUndefined();
+    expect(queryCall.input.ExpressionAttributeValues).toMatchObject({
+      ':pk': 'RUNNING_JOB#FINANCE_JOB',
     });
-    expect(scanCall.input.ExpressionAttributeValues?.[':cutoff']).toMatch(
+    expect(queryCall.input.ExpressionAttributeValues?.[':cutoff']).toMatch(
       /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
     );
   });

@@ -98,6 +98,11 @@ export const EVENT_METRIC_MAP: Readonly<Record<MetricKey, MetricMapping>> = Obje
   // ======================================================================
   // edforge.identity-service — entity-lifecycle domain events
   // ======================================================================
+  // Emitted by the Cognito PostAuthentication trigger (server/lib/auth-events)
+  // since 2026-07 — every real login. The `edforge.analytics` LoginSuccess row
+  // above is the older in-app emitter; both count into the same metric, which
+  // the adoption report's teacherLoginCadence reads.
+  [k('edforge.identity-service', 'LoginSuccess')]:         { metric: 'auth.login.success',             dimensions: ['role'] },
   [k('edforge.identity-service', 'UserCreated')]:          { metric: 'identity.user.created',          dimensions: ['role'] },
   [k('edforge.identity-service', 'UserUpdated')]:          { metric: 'identity.user.updated',          dimensions: ['role'] },
   [k('edforge.identity-service', 'UserDeleted')]:          { metric: 'identity.user.deleted',          dimensions: ['role'] },

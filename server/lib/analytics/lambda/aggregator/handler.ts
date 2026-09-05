@@ -30,6 +30,14 @@
  *     by event-metric-map dimensions + an assertion in buildAggregateWrites.
  *   - Never throw. All errors are logged and routed to DLQ via SendMessage
  *     so Lambda doesn't retry-loop.
+ *   - The DLQ is for events that failed to be processed, not for event types
+ *     nobody mapped: an unmapped (source, detailType) is logged and dropped.
+ *     Dead-lettering those made the analytics-functions alarm permanently red
+ *     (every login dead-lettered for weeks in 2026-08/09).
+ *   - A TransactWriteItems cancelled with TransactionConflict is retried with
+ *     backoff: a cancelled transaction applied nothing, and bursts (a bulk
+ *     invoice run emits hundreds of InvoiceGenerated within seconds, all
+ *     incrementing the same DAY rows) make conflicts routine.
  */
 
 import { EventBridgeEvent } from 'aws-lambda';
@@ -150,6 +158,10 @@ export function invalidateTenantSettings(tenantId: string): void {
 }
 
 const LANDING_TTL_DAYS = 90;
+
+/** Retries after a TransactionConflict; 5 attempts ≈ 0.4–1.1 s worst case at the default base. */
+const CONFLICT_RETRY_ATTEMPTS = 5;
+const CONFLICT_RETRY_BASE_MS = Number(process.env.AGGREGATOR_CONFLICT_RETRY_BASE_MS ?? '50');
 const USER_SESSION_TTL_DAYS = 395; // 13 months
 const DAY_AGGREGATE_TTL_DAYS = 90; // DAY rows; WEEK/MONTH handled by rollup
 
@@ -363,6 +375,40 @@ async function writeLanding(
 }
 
 // ----------------------------------------------------------------------
+// TransactWriteItems with TransactionConflict retry
+// ----------------------------------------------------------------------
+function isTransactionConflict(err: unknown): boolean {
+  const e = err as {
+    name?: string;
+    message?: string;
+    CancellationReasons?: Array<{ Code?: string }>;
+  };
+  if (e?.name !== 'TransactionCanceledException') return false;
+  if (e.CancellationReasons?.some((r) => r.Code === 'TransactionConflict')) return true;
+  return /TransactionConflict/.test(e.message ?? '');
+}
+
+async function transactWriteWithConflictRetry(
+  writes: TransactWriteItem[],
+  logCtx: LogCtx,
+): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await ddb.send(new TransactWriteItemsCommand({ TransactItems: writes }));
+      return;
+    } catch (err) {
+      if (!isTransactionConflict(err) || attempt >= CONFLICT_RETRY_ATTEMPTS) throw err;
+      const delayMs = CONFLICT_RETRY_BASE_MS * 2 ** (attempt - 1) * (0.5 + Math.random());
+      logWarn(
+        `TransactWriteItems conflict — retry ${attempt}/${CONFLICT_RETRY_ATTEMPTS - 1} in ${Math.round(delayMs)} ms`,
+        logCtx,
+      );
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
+// ----------------------------------------------------------------------
 // CloudWatch metrics
 // ----------------------------------------------------------------------
 async function publishProcessedMetric(
@@ -460,9 +506,12 @@ export const handler = async (event: EventBridgeEvent<string, any>): Promise<voi
   }
 
   // --- 2. Metric lookup ---------------------------------------------------
+  // An unmapped type is a mapping gap, not a processing failure: log it (Logs
+  // Insights: msg = "event ignored") and stop. Add a row to event-metric-map
+  // when the type should count.
   const mapping: MetricMapping | null = lookupMetric(source, detailType);
   if (!mapping) {
-    await sendToDlq(`no metric mapping for (${source}, ${detailType})`, event, logCtx);
+    logWarn(`event ignored — no metric mapping for (${source}, ${detailType})`, logCtx);
     return;
   }
 
@@ -535,7 +584,7 @@ export const handler = async (event: EventBridgeEvent<string, any>): Promise<voi
   }
 
   try {
-    await ddb.send(new TransactWriteItemsCommand({ TransactItems: writes }));
+    await transactWriteWithConflictRetry(writes, logCtx);
   } catch (err) {
     logError(
       `TransactWriteItems failed: ${(err as Error).message}`,

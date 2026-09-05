@@ -7,6 +7,12 @@
     "so no pre-merge gate compiled server/lib. `tsc -p tsconfig.json` can't be",
     "used directly because it globs application/** specs + @react-pdf decls.",
     "",
+    "The lib list adds esnext.disposable: aws-cdk-lib >= 2.2xx declarations",
+    "reference `Disposable`, and tsc checks declaration files. It lives here,",
+    "not in tsconfig.json, because the repo-root scripts (lint:routes,",
+    "lint:authz) run ts-node with the root's TypeScript 4.9, which rejects",
+    "that lib name; ts-node never type-checks node_modules declarations.",
+    "",
     "Lambda sources under lib/**/lambda/** are excluded: cdk resolves them by",
     "string `entry` path and esbuild bundles them at synth — they are NOT in",
     "the CDK app's tsc import graph, so type-checking them here would diverge",
@@ -14,6 +20,7 @@
   ],
   "compilerOptions": {
     "noEmit": true,
+    "lib": ["es2022", "esnext.disposable", "dom"],
     "types": ["node"]
   },
   "include": ["bin/**/*.ts", "lib/**/*.ts"],

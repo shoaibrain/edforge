@@ -347,6 +347,13 @@ export class AnalyticsStack extends cdk.Stack {
     const dlqDepthMetric = this.aggregatorDlq.metricApproximateNumberOfMessagesVisible({
       period: cdk.Duration.minutes(5),
     });
+    // The alarm watches arrivals, not depth: a message sits in the queue for
+    // 14 days, so a depth term keeps the alarm red long after the cause is
+    // fixed (it was red from 2026-09-03 for events dead-lettered in August).
+    const dlqNewMessagesMetric = this.aggregatorDlq.metricNumberOfMessagesSent({
+      period: cdk.Duration.minutes(15),
+      statistic: 'Sum',
+    });
 
     dashboard.addWidgets(
       new cloudwatch.GraphWidget({
@@ -739,14 +746,13 @@ export class AnalyticsStack extends cdk.Stack {
     // tenant-stack export, so the janitor stays independent of any
     // per-tier provisioning lifecycle.
     //
-    // Scan + FilterExpression is used (not a sparse GSI on `status`)
-    // because adding a GSI would force a tenant-template-stack-basic
-    // CDK deploy + GSI build on the existing table — a larger blast
-    // radius. At pilot scale (~1–2 tenants, ~few thousand rows) the
-    // 5-min Scan is well within bounds. If the table grows past ~50k
-    // items or tenant count >10, add a sparse GSI on
-    // (entityType='IEMIS_IMPORT_JOB', status='running') and switch the
-    // janitor to Query.
+    // The janitor Queries the sparse running-jobs index GSI15 (tenant-
+    // template `ecs-dynamodb.ts`, cost-redesign Sprint 8): only rows in
+    // `status='running'` carry gsi15pk/gsi15sk, so a sweep reads a handful
+    // of items. The Scan + FilterExpression it replaced read the whole
+    // table every five minutes — 91 % of the account's DynamoDB reads.
+    // Cadence 15 min against a 30-min staleness threshold: a stale import
+    // is marked failed at most 15 minutes late.
     // ------------------------------------------------------------
     // V1 is BASIC-only (per CLAUDE.md). Mirror the identity-table hardcode at
     // line ~820 (`IDENTITY_TABLE_NAME: 'edforge-identity-basic'`). When the
@@ -754,7 +760,7 @@ export class AnalyticsStack extends cdk.Stack {
     // scan loop and a hand-written IAM policy with all three table ARNs.
     const academicsTableName = 'edforge-academics-basic';
     const janitor = new ScheduledLambda(this, 'IemisJobJanitorLambda', {
-      schedule: 'cron(*/5 * * * ? *)', // every 5 minutes
+      schedule: 'cron(*/15 * * * ? *)',
       timezone: 'UTC',
       lambdaProps: {
         functionName: 'edforge-iemis-job-janitor',
@@ -775,13 +781,21 @@ export class AnalyticsStack extends cdk.Stack {
     });
     this.iemisJobJanitorLambda = janitor.lambda;
 
-    // IAM — janitor needs Scan + UpdateItem on the academics table + SNS
-    // Publish on the operator-alert topic. The table is in a different
-    // CDK stack (tenant-template-stack-basic); we reference it by name
-    // rather than cross-stack import, so the policy is hand-written.
+    // IAM — janitor needs Query on the running-jobs index, UpdateItem on the
+    // academics table and SNS Publish on the operator-alert topic. The table
+    // is in a different CDK stack (tenant-template-stack-basic); we reference
+    // it by name rather than cross-stack import, so the policy is hand-written.
     this.iemisJobJanitorLambda.addToRolePolicy(
       new iam.PolicyStatement({
-        actions: ['dynamodb:Scan', 'dynamodb:UpdateItem'],
+        actions: ['dynamodb:Query'],
+        resources: [
+          `arn:aws:dynamodb:${this.region}:${this.account}:table/${academicsTableName}/index/GSI15`,
+        ],
+      }),
+    );
+    this.iemisJobJanitorLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['dynamodb:UpdateItem'],
         resources: [
           `arn:aws:dynamodb:${this.region}:${this.account}:table/${academicsTableName}`,
         ],
@@ -790,7 +804,7 @@ export class AnalyticsStack extends cdk.Stack {
     this.operatorAlertTopic.grantPublish(this.iemisJobJanitorLambda);
 
     // Janitor errors are a term (tolerance: more than 2 in 15 min, a single
-    // failed run is caught by the next 5-min cron) in the consolidated
+    // failed run is caught by the next 15-min cron) in the consolidated
     // AnalyticsFunctionsErrorsAlarm below.
     const janitorErrors = this.iemisJobJanitorLambda.metricErrors({
       period: cdk.Duration.minutes(15),
@@ -810,7 +824,7 @@ export class AnalyticsStack extends cdk.Stack {
     // the aggregator does.
     const financeTableName = 'edforge-finance-basic';
     const financeJanitor = new ScheduledLambda(this, 'FinanceJobJanitorLambda', {
-      schedule: 'cron(*/5 * * * ? *)',
+      schedule: 'cron(*/15 * * * ? *)',
       timezone: 'UTC',
       lambdaProps: {
         functionName: 'edforge-finance-job-janitor',
@@ -833,7 +847,15 @@ export class AnalyticsStack extends cdk.Stack {
 
     this.financeJobJanitorLambda.addToRolePolicy(
       new iam.PolicyStatement({
-        actions: ['dynamodb:Scan', 'dynamodb:UpdateItem'],
+        actions: ['dynamodb:Query'],
+        resources: [
+          `arn:aws:dynamodb:${this.region}:${this.account}:table/${financeTableName}/index/GSI15`,
+        ],
+      }),
+    );
+    this.financeJobJanitorLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['dynamodb:UpdateItem'],
         resources: [
           `arn:aws:dynamodb:${this.region}:${this.account}:table/${financeTableName}`,
         ],
@@ -1198,7 +1220,7 @@ export class AnalyticsStack extends cdk.Stack {
     // One alarm, one page, over every analytics Lambda plus the aggregator
     // DLQ. Each term keeps the semantics of the alarm it replaced:
     //   aggregator errors  > 0   (events retry 2x then land in the DLQ)
-    //   aggregator DLQ     > 0   (events being dropped)
+    //   aggregator DLQ     > 0   new dead letters in the period (not depth)
     //   rollup errors      > 0
     //   report aggregator  > 0   (CSV generation halted)
     //   janitors           > 2   (a single failed run is caught by the next cron)
@@ -1211,13 +1233,13 @@ export class AnalyticsStack extends cdk.Stack {
     const analyticsFunctionsErrorsAlarm = new cloudwatch.Alarm(this, 'AnalyticsFunctionsErrorsAlarm', {
       alarmName: 'edforge-analytics-functions-errors',
       alarmDescription:
-        'An analytics Lambda is erroring or the aggregator DLQ holds events (aggregator, rollup, report aggregator: any error; job janitors: more than 2 in 15 min). Check the function logs; redrive the DLQ if needed.',
+        'An analytics Lambda is erroring or the aggregator dead-lettered an event in the last 15 minutes (aggregator, rollup, report aggregator: any error; job janitors: more than 2 in 15 min). Check the function logs; redrive the DLQ if needed.',
       metric: new cloudwatch.MathExpression({
         expression:
           'FILL(agg, 0) + FILL(dlq, 0) + FILL(rollup, 0) + FILL(report, 0) + IF(FILL(iemis, 0) > 2, 1, 0) + IF(FILL(fin, 0) > 2, 1, 0)',
         usingMetrics: {
           agg: errorsMetric.with({ period: period15, statistic: 'Sum' }),
-          dlq: dlqDepthMetric.with({ period: period15, statistic: 'Maximum' }),
+          dlq: dlqNewMessagesMetric,
           rollup: this.rollupLambda.metricErrors({ period: period15, statistic: 'Sum' }),
           report: reportAggregatorErrors,
           iemis: janitorErrors,

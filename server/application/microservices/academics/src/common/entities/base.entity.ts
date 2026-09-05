@@ -359,6 +359,13 @@ function warnIfMissingGSI(method: string, params: Record<string, unknown>): void
 }
 
 export const GSIKeyBuilder = {
+  /**
+   * GSI15PK: the sparse running-jobs index the job janitor queries
+   * (cost-redesign Sprint 8). Set with `gsi15sk = startedAt` in
+   * `markRunning`; REMOVEd by every terminal transition.
+   */
+  runningJob: (entityType: 'IEMIS_IMPORT_JOB'): string => `RUNNING_JOB#${entityType}`,
+
   /** GSI1PK (School scope): TENANT#{tid}#SCHOOL#{schoolId} */
   schoolScope: (tenantId: string, schoolId: string): string => {
     warnIfMissingGSI('schoolScope', { tenantId, schoolId });

@@ -46,7 +46,7 @@ jest.mock('@aws-sdk/client-sns', () => {
 });
 
 import type {
-  ScanCommand,
+  QueryCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type { PublishCommand } from '@aws-sdk/client-sns';
@@ -87,7 +87,7 @@ describe('iemis-job-janitor handler', () => {
     expect(snsSend).not.toHaveBeenCalled();
     expect(ddbDocSend).toHaveBeenCalledTimes(1);
     const scanCall = ddbDocSend.mock.calls[0][0];
-    expect(scanCall.constructor.name).toBe('ScanCommand');
+    expect(scanCall.constructor.name).toBe('QueryCommand');
   });
 
   it('marks one orphan failed and publishes SNS summary', async () => {
@@ -126,6 +126,9 @@ describe('iemis-job-janitor handler', () => {
     expect((updateCall as UpdateCommand).input.UpdateExpression).toContain(
       ':failed',
     );
+    expect((updateCall as UpdateCommand).input.UpdateExpression).toContain(
+      'REMOVE gsi15pk, gsi15sk',
+    );
 
     expect(snsSend).toHaveBeenCalledTimes(1);
     const publishCall = snsSend.mock.calls[0][0];
@@ -133,7 +136,7 @@ describe('iemis-job-janitor handler', () => {
     expect((publishCall as PublishCommand).input.Subject).toContain('1 orphan');
   });
 
-  it('paginates Scan when LastEvaluatedKey is set', async () => {
+  it('paginates the GSI15 Query when LastEvaluatedKey is set', async () => {
     ddbDocSend
       .mockResolvedValueOnce({
         Items: [
@@ -168,7 +171,7 @@ describe('iemis-job-janitor handler', () => {
 
     // 2 scan pages + 2 updates = 4 DDB calls
     expect(ddbDocSend).toHaveBeenCalledTimes(4);
-    const secondScan = ddbDocSend.mock.calls[1][0] as ScanCommand;
+    const secondScan = ddbDocSend.mock.calls[1][0] as QueryCommand;
     expect(secondScan.input.ExclusiveStartKey).toEqual({
       tenantId: 'tenant-a',
       entityKey: 'IEMIS_IMPORT_JOB#job-a',
@@ -204,6 +207,14 @@ describe('iemis-job-janitor handler', () => {
     });
     // No SNS publish — neither marked nor errored
     expect(snsSend).not.toHaveBeenCalled();
+
+    // The row left `running` without dropping its GSI15 keys: the janitor
+    // detaches it so the next sweep does not read it again.
+    expect(ddbDocSend).toHaveBeenCalledTimes(3);
+    const detach = ddbDocSend.mock.calls[2][0] as UpdateCommand;
+    expect(detach.constructor.name).toBe('UpdateCommand');
+    expect(detach.input.UpdateExpression).toBe('REMOVE gsi15pk, gsi15sk');
+    expect(detach.input.ConditionExpression).toBe('#status <> :running');
   });
 
   it('records generic UpdateItem errors and STILL publishes SNS so operator sees the failure', async () => {
@@ -259,23 +270,24 @@ describe('iemis-job-janitor handler', () => {
     );
   });
 
-  it('Scan FilterExpression carries the correct IEMIS_IMPORT_JOB entity type and running status', async () => {
+  it('queries GSI15 for IEMIS_IMPORT_JOB rows running since before the cutoff (no Scan)', async () => {
     ddbDocSend.mockResolvedValueOnce({ Items: [] });
 
     const { handler } = await import('./handler');
     await handler();
 
-    const scanCall = ddbDocSend.mock.calls[0][0] as ScanCommand;
-    expect(scanCall.input.FilterExpression).toBe(
-      'entityType = :et AND #status = :running AND createdAt < :cutoff',
+    const queryCall = ddbDocSend.mock.calls[0][0] as QueryCommand;
+    expect(queryCall.constructor.name).toBe('QueryCommand');
+    expect(queryCall.input.IndexName).toBe('GSI15');
+    expect(queryCall.input.KeyConditionExpression).toBe(
+      'gsi15pk = :pk AND gsi15sk < :cutoff',
     );
-    expect(scanCall.input.ExpressionAttributeValues).toMatchObject({
-      ':et': 'IEMIS_IMPORT_JOB',
-      ':running': 'running',
+    expect(queryCall.input.FilterExpression).toBeUndefined();
+    expect(queryCall.input.ExpressionAttributeValues).toMatchObject({
+      ':pk': 'RUNNING_JOB#IEMIS_IMPORT_JOB',
     });
-    // cutoff is computed at handler runtime, just sanity-check the shape
-    expect(
-      scanCall.input.ExpressionAttributeValues?.[':cutoff'],
-    ).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(queryCall.input.ExpressionAttributeValues?.[':cutoff']).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+    );
   });
 });

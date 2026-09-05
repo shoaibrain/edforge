@@ -14,14 +14,16 @@
  *   update the IEMIS_IMPORT_JOB row's status. Without this janitor the
  *   row sits in `running` forever and the operator's UI poll spins.
  *
- * Why a Scan (not Query / GSI):
- *   The academics table has no GSI on (status, createdAt) today. Adding
- *   one would touch tenant-template-stack-basic (a per-tenant CDK stack),
- *   triggering a larger blast radius. At pilot scale (1–2 tenants, low
- *   thousands of items per tenant), Scan + FilterExpression is bounded:
- *   page through the table once every 5 min, filtering server-side. If
- *   this ever becomes hot (>10 tenants OR table grows past ~50k items),
- *   add a sparse GSI keyed on (status='running').
+ * Why a Query on GSI15 (cost-redesign Sprint 8):
+ *   Until September 2026 this handler ran a Scan + FilterExpression over the
+ *   whole table every five minutes. A Scan is billed on the bytes it reads,
+ *   not the rows it returns, so the two janitors were 91 % of the account's
+ *   DynamoDB reads (≈ $2/month) and grew with the table. GSI15 is a sparse
+ *   index that only rows in `status='running'` populate (`gsi15pk =
+ *   RUNNING_JOB#IEMIS_IMPORT_JOB`, `gsi15sk = startedAt`); the service sets the
+ *   keys in `markRunning` and REMOVEs them on every terminal transition, so
+ *   one Query with `gsi15sk < cutoff` returns exactly the stale set for a
+ *   fraction of a read unit. The sweep runs every 15 minutes.
  *
  * Why 30 min staleness:
  *   A 200-row import takes ~45s; an 800-row Saraswati import takes ~3 min;
@@ -48,7 +50,7 @@ import {
 } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient,
-  ScanCommand,
+  QueryCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { SNSClient, PublishCommand } from '@aws-sdk/client-sns';
@@ -114,10 +116,10 @@ export async function handler(): Promise<SweepResult> {
     `[iemis-job-janitor] sweep starting — staleThresholdMin=${STALE_THRESHOLD_MIN}, cutoffIso=${cutoffIso}, table=${TABLE_NAME}`,
   );
 
-  // ── Scan for orphan rows ────────────────────────────────────────────────
-  const orphans = await scanOrphanJobs(TABLE_NAME, cutoffIso);
+  // ── Query the running-jobs index (GSI15) for stale rows ──────────────────
+  const orphans = await queryOrphanJobs(TABLE_NAME, cutoffIso);
 
-  console.log(`[iemis-job-janitor] scan complete — ${orphans.length} orphan(s) found`);
+  console.log(`[iemis-job-janitor] query complete — ${orphans.length} orphan(s) found`);
 
   // ── Mark each as failed (conditional on still-running) ──────────────────
   let marked = 0;
@@ -149,10 +151,18 @@ export async function handler(): Promise<SweepResult> {
 }
 
 // ============================================================================
-// Scan helper — paginates with FilterExpression
+// Query helper — the sparse running-jobs index (GSI15), paginated
 // ============================================================================
 
-async function scanOrphanJobs(
+/**
+ * Partition of GSI15 that holds IEMIS_IMPORT_JOB rows. Mirrors
+ * `GSIKeyBuilder.runningJob('IEMIS_IMPORT_JOB')` in the service; the janitor
+ * bundle is self-contained, so the value is repeated here.
+ */
+const RUNNING_JOBS_INDEX = 'GSI15';
+const RUNNING_JOBS_PK = 'RUNNING_JOB#IEMIS_IMPORT_JOB';
+
+async function queryOrphanJobs(
   tableName: string,
   cutoffIso: string,
 ): Promise<OrphanRow[]> {
@@ -161,14 +171,12 @@ async function scanOrphanJobs(
 
   do {
     const out = await ddbDoc.send(
-      new ScanCommand({
+      new QueryCommand({
         TableName: tableName,
-        FilterExpression:
-          'entityType = :et AND #status = :running AND createdAt < :cutoff',
-        ExpressionAttributeNames: { '#status': 'status' },
+        IndexName: RUNNING_JOBS_INDEX,
+        KeyConditionExpression: 'gsi15pk = :pk AND gsi15sk < :cutoff',
         ExpressionAttributeValues: {
-          ':et': 'IEMIS_IMPORT_JOB',
-          ':running': 'running',
+          ':pk': RUNNING_JOBS_PK,
           ':cutoff': cutoffIso,
         },
         ProjectionExpression:
@@ -211,7 +219,7 @@ async function markOrphanFailed(
         TableName: tableName,
         Key: { tenantId: orphan.tenantId, entityKey: orphan.entityKey },
         UpdateExpression:
-          'SET #status = :failed, #error = :reason, completedAt = :now, updatedAt = :now, updatedBy = :janitor',
+          'SET #status = :failed, #error = :reason, completedAt = :now, updatedAt = :now, updatedBy = :janitor REMOVE gsi15pk, gsi15sk',
         ConditionExpression: '#status = :running',
         ExpressionAttributeNames: { '#status': 'status', '#error': 'error' },
         ExpressionAttributeValues: {
@@ -230,6 +238,7 @@ async function markOrphanFailed(
       console.log(
         `[iemis-job-janitor] conditional skip — ${orphan.entityKey} no longer in running state (won by the worker)`,
       );
+      await detachFromRunningIndex(tableName, orphan);
       return 'condition-failed';
     }
     console.error(
@@ -237,6 +246,37 @@ async function markOrphanFailed(
       err.message ?? 'unknown',
     );
     return { message: err.message ?? 'unknown error' };
+  }
+}
+
+/**
+ * A row that left `running` without dropping its GSI15 keys (a write that
+ * raced this sweep, or a code path older than the index) would otherwise be
+ * re-read on every sweep. Drop the keys once the status has moved on.
+ */
+async function detachFromRunningIndex(
+  tableName: string,
+  orphan: OrphanRow,
+): Promise<void> {
+  try {
+    await ddbDoc.send(
+      new UpdateCommand({
+        TableName: tableName,
+        Key: { tenantId: orphan.tenantId, entityKey: orphan.entityKey },
+        UpdateExpression: 'REMOVE gsi15pk, gsi15sk',
+        ConditionExpression: '#status <> :running',
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: { ':running': 'running' },
+      }),
+    );
+  } catch (e) {
+    const err = e as { name?: string; message?: string };
+    if (err.name !== 'ConditionalCheckFailedException') {
+      console.error(
+        `[iemis-job-janitor] error detaching ${orphan.entityKey} from ${RUNNING_JOBS_INDEX}:`,
+        err.message ?? 'unknown',
+      );
+    }
   }
 }
 

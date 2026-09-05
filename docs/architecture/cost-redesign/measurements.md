@@ -121,3 +121,48 @@ this sprint: either align the zip cap on the worker path to 1,000 or lift
 render concurrency (memory has room, 658 MB of 3,008 MB, but rendering is
 CPU-bound and a 3,008 MB function has about 1.7 vCPU, so the gain from more
 parallelism is uncertain and must be measured, not assumed).
+
+## Sprint 8 — what the bill is made of once the fixed lines are gone (2026-09-05)
+
+Cost Explorer, daily, unblended, pre-tax: $6.06/day flat through August;
+$0.75 on 5 September, a partial day (services to zero at 03:12 UTC, the
+load balancers, NAT and VPC gone at 03:54 UTC). September month-to-date on
+the 5th: $24.28, four of those days at the old shape.
+
+### DynamoDB reads were the janitors
+
+Consumed read units per table over the 24 hours to 11:30 UTC, 5 September,
+against the finding that the two job janitors ran a `Scan` of their whole
+table every five minutes (a Scan is billed on bytes read, not rows
+matched):
+
+| Table | Read units / 24 h | Of which janitor scans | Basis |
+|---|---:|---:|---|
+| edforge-academics-basic | 299,255 | ≈ 293,000 | 288 sweeps × 1,018 units (8.3 MB table ÷ 4 KB ÷ 2) |
+| edforge-finance-basic | 179,877 | ≈ 159,000 | 552 units in every 5-minute bucket, all day |
+| edforge-identity-basic | 18,761 | 0 | real traffic |
+| every other table | < 20 | 0 | |
+
+91 % of all reads; at August's observed price ($2.10 for 14.72 M units)
+about $2.0 of the $2.16 a month DynamoDB reads cost, and linear in table
+size. Sprint 8 replaces the Scan with a Query on the sparse running-jobs
+index (GSI15, populated only while a job is `running`) at a 15-minute
+cadence; the row below is filled in after the deploy.
+
+| After the change (deployed 2026-09-05 17:43 UTC) | Read units / 24 h | Notes |
+|---|---:|---|
+| edforge-academics-basic | _first full day pending_ | five-minute buckets read 0 from the first sweep; the janitor role can no longer Scan |
+| edforge-finance-basic | _first full day pending_ | remaining reads are the hourly schedules and traffic |
+
+### What remains on the bill (estimates from August unit prices and the last 24 hours)
+
+| Line | ≈ $/month | Basis |
+|---|---:|---|
+| KMS, two customer keys (SBT script jobs) | 2.00 | fixed; Sprint 7 removes them |
+| DynamoDB reads | 2.16 | 91 % janitor scans, see above |
+| ECR, 94 images in the three service repositories | 0.39 | expiring under the 30-day lifecycle rules |
+| DynamoDB writes, storage, PITR | 0.30 | 8k write units/day, 19 MB |
+| API Gateway | 0.10 | $0.0035/day at pilot traffic |
+| Logs storage, S3, SNS, SES, Events | 0.08 | 0.93 GB of orphaned VPC flow logs is most of it |
+| Lambda, SQS, Scheduler, Cognito, alarms (10), dashboards (3) | 0.00 | permanent free tiers |
+| **Pre-tax total** | **≈ 5.0** | ≈ 3.0 after Sprint 7, ≈ 1.0 after the janitor change, tax ≈ 6.6 % on top |

@@ -59,6 +59,7 @@ import { FinanceAuditService } from '../common/services/finance-audit.service';
 import { retryWithJitter, isConflictException } from './util/retry-with-jitter';
 import {
   EntityKeyBuilder,
+  GSIKeyBuilder,
   RequestContext,
 } from '../common/entities/base.entity';
 import {
@@ -424,10 +425,11 @@ export class FinanceJobsService {
         EntityKeyBuilder.financeJob(jobId),
         // C3.6 — a worker that holds the DynamoDB school lock stores its fence on
         // the row; every later transition is conditioned on it (updateJob()).
-        `SET #status = :running, startedAt = :now, updatedAt = :now, updatedBy = :by${context.jobFence !== undefined ? ', fence = :fence' : ''} ADD version :one`,
+        `SET #status = :running, startedAt = :now, gsi15pk = :runningIndexPk, gsi15sk = :now, updatedAt = :now, updatedBy = :by${context.jobFence !== undefined ? ', fence = :fence' : ''} ADD version :one`,
         {
           ':running': 'running',
           ':queued': 'queued',
+          ':runningIndexPk': GSIKeyBuilder.runningJob('FINANCE_JOB'),
           ':now': now,
           ':by': context.userId,
           ':one': 1,
@@ -516,7 +518,7 @@ export class FinanceJobsService {
     }
 
     const updated = await this.updateJob(client, context, jobId,
-      `SET ${setParts.join(', ')} ADD version :one`,
+      `SET ${setParts.join(', ')} ADD version :one REMOVE gsi15pk, gsi15sk`,
       attrValues,
       '#status = :running',
       attrNames,
@@ -571,7 +573,7 @@ export class FinanceJobsService {
     const newErrors = capErrors(current.errors, { at: now, message: reason });
 
     const updated = await this.updateJob(client, context, jobId,
-      'SET #status = :failed, completedAt = :now, errors = :errors, updatedAt = :now, updatedBy = :by ADD version :one',
+      'SET #status = :failed, completedAt = :now, errors = :errors, updatedAt = :now, updatedBy = :by ADD version :one REMOVE gsi15pk, gsi15sk',
       {
         ':failed': 'failed',
         ':queued': 'queued',

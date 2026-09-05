@@ -93,6 +93,11 @@ export interface FinanceJobEntity extends BaseEntity {
   jobType: FinanceJobType;
   status: FinanceJobStatus;
 
+  /** GSI15 (sparse running-jobs index): present only while `status === 'running'`. */
+  gsi15pk?: string;
+  /** GSI15 sort key: `startedAt`, so the janitor can range on it. */
+  gsi15sk?: string;
+
   counters: FinanceJobCounters;
 
   /** Operator-chosen output format for PDF-export jobs. `null` for generate jobs. */
