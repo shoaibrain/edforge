@@ -11,7 +11,7 @@ import { Template, Match } from 'aws-cdk-lib/assertions';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { AnalyticsStack, type AnalyticsStackProps } from './analytics-stack';
 
-function synth(overrides: Partial<AnalyticsStackProps> = {}) {
+function synth(overrides: Partial<AnalyticsStackProps> = {}, withLifecycleFunctions = false) {
   const app = new cdk.App();
   // tenantSeederLambda needs an IFunction. Creating a placeholder Lambda in a
   // helper stack is the canonical CDK test pattern for cross-stack references
@@ -25,11 +25,22 @@ function synth(overrides: Partial<AnalyticsStackProps> = {}) {
     code: lambda.Code.fromInline('exports.handler = async () => ({});'),
   });
 
+  const stub = (id: string) =>
+    new lambda.Function(depsStack, id, {
+      runtime: lambda.Runtime.NODEJS_22_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromInline('exports.handler = async () => ({});'),
+    });
+  const lifecycle = withLifecycleFunctions
+    ? { tenantProvisionerLambda: stub('ProvisionerStub'), tenantDeprovisionerLambda: stub('DeprovisionerStub') }
+    : {};
+
   const stack = new AnalyticsStack(app, 'AnalyticsStackTest', {
     eventBusName: 'test-sbt-bus',
     operatorAlertEmail: 'ops@example.com',
     analyticsEnabled: 'false',
     tenantSeederLambda,
+    ...lifecycle,
     corsAllowedOrigins:
       'https://test-tenant-frontend.example.com,https://test-frontend-*.preview.example.com',
     env: { account: '111111111111', region: 'us-east-2' },
@@ -269,6 +280,17 @@ describe('AnalyticsStack — Layer 2 CDK template assertions', () => {
           Match.objectLike({ Id: 'report' }),
           Match.objectLike({ Id: 'iemis' }),
           Match.objectLike({ Id: 'fin' }),
+        ]),
+      });
+    });
+
+    it('control-plane-functions alarm adds the provisioner and deprovisioner as terms when they exist (C7.3)', () => {
+      synth({}, true).hasResourceProperties('AWS::CloudWatch::Alarm', {
+        AlarmName: 'edforge-control-plane-functions-errors',
+        Metrics: Match.arrayWith([
+          Match.objectLike({ Expression: 'FILL(seeder, 0) + FILL(prov, 0) + FILL(deprov, 0)' }),
+          Match.objectLike({ Id: 'prov' }),
+          Match.objectLike({ Id: 'deprov' }),
         ]),
       });
     });

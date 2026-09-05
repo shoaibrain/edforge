@@ -191,7 +191,7 @@ exports.handler = async (event) => {
   try {
     // Parse tenant data from SBT event format
     // SBT's sbt_aws_provisionSuccess event has data in jobOutput.tenantData
-    let tenantId, tenantName, tier, email, subdomain, cognitoUserPoolId, country, archetype, tenantTag;
+    let tenantId, tenantName, tier, email, subdomain, cognitoUserPoolId, country, archetype, tenantTag, alertTopicArn;
 
     if (event.detail?.jobOutput?.tenantData) {
       // SBT native format - parse from jobOutput
@@ -209,6 +209,10 @@ exports.handler = async (event) => {
       country = tenantData.country || '';
       archetype = (tenantData.archetype || '').toUpperCase();
       tenantTag = tenantData.tenantTag || '';
+      // Cost-redesign C7.1: the provisioner function creates the tenant alert
+      // topic before emitting success and carries the ARN here (the script
+      // attached it afterwards with a poll-retry).
+      alertTopicArn = tenantData.alertTopicArn || '';
 
       // Parse tenantConfig JSON to get Cognito User Pool ID
       if (tenantData.tenantConfig) {
@@ -231,6 +235,7 @@ exports.handler = async (event) => {
       country = event.detail.country || '';
       archetype = (event.detail.archetype || '').toUpperCase();
       tenantTag = event.detail.tenantTag || '';
+      alertTopicArn = event.detail.alertTopicArn || '';
     } else {
       throw new Error('Unknown event format - missing tenant data in event.detail');
     }
@@ -305,6 +310,10 @@ exports.handler = async (event) => {
     // Add Cognito User Pool ID if provided
     if (cognitoUserPoolId) {
       item.cognitoUserPoolId = { S: cognitoUserPoolId };
+    }
+
+    if (alertTopicArn) {
+      item.alertTopicArn = { S: alertTopicArn };
     }
 
     // Persist country on metadata for lazy-creation fallback in identity service

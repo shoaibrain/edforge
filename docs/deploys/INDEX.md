@@ -29,6 +29,50 @@ operator-specific deployment evidence. The entries below preserve durable public
 status without raw log links, account IDs, ARNs, tenant UUIDs, operator emails,
 JWT claims, or environment-specific hostnames.
 
+### 2026-09-05 — Cost redesign Sprint 7: tenant lifecycle functions replace the CodeBuild script jobs — Green
+
+- **Scope:** PR #455 (C7.1–C7.3, D7.1–D7.7); design and the executed record
+  in `docs/architecture/cost-redesign/sprint-7-analysis.md`. One `cdk diff`
+  of the three stacks before the first deploy, identical to the reviewed
+  diffs.
+- **Order:** core-appplane first, not controlplane as designed — the
+  deployed core-appplane imported the SBT bus ARN through a controlplane
+  auto-export that the new controlplane template drops, and CloudFormation
+  will not remove an export in use. Between the two deploys (about ten
+  minutes) nothing consumed onboarding requests; no tenant was created and
+  the registration table showed nothing in progress before or after.
+- **core-appplane (106 s):** 27 resources gone — both KMS keys (pending
+  deletion for 30 days; billing stopped at scheduling), both CodeBuild
+  projects, both state machines, the two SBT rules, four log groups, the
+  roles and policies, the CodeBuild-failures alarm. The provisioning alerts
+  topic and its subscription untouched.
+- **controlplane (first attempt rolled back, second green in 3 min):** the
+  first update failed on a missing shared-infra export — referencing the
+  API-B construct for the tenant API URL had minted a second, auto-named
+  export that only a shared-infra deploy creates. The rollback left the
+  stack unchanged; the fix imports the existing named `TenantApiLambdaUrl`
+  export (same value), after which shared-infra diffed clean. Live:
+  `edforge-tenant-provisioner` and `edforge-tenant-deprovisioner` on
+  `nodejs22.x`, rules on the SBT bus with retries, 30-day log retention,
+  the seeder writing `alertTopicArn`. IAM Policy Simulator on the deployed
+  roles: every designed action allowed, the negative controls denied.
+- **analytics (15 s):** the control-plane functions alarm sums the seeder
+  and both functions; OK.
+- **Account afterwards:** no customer-managed KMS key enabled, nine alarms
+  all OK, no fixed monthly line left on the bill.
+- **Round trip (C7.4):** a throwaway `internal-dev-rehearsal` tenant created
+  from AdminWeb was provisioned in under two seconds (user, group, alert
+  topic, success event; seeder rows two seconds later), passed the 7-check
+  provisioned smoke, took a real admin login and forty minutes of use
+  (school, academic year, generated calendar), and was deleted from AdminWeb:
+  the deprovisioner removed the user, the group, the topic and 383 rows
+  across the three tables in about a second, SBT marked the registration
+  Deleted, and the 5-check deprovisioned smoke passed. No alert, no alarm.
+- **Pending:** C7.5 lifecycle rule on the provisioning source bucket.
+  Pre-existing defects found while inspecting the rehearsal tenant are
+  tracked separately (frontend #345, #346; backend #456; runtime findings in
+  `sprint-7-analysis.md`).
+
 ### 2026-09-05 — Cost redesign Sprint 8, part 2: janitors off the table scan, aggregator dead letters, CDK library current — Green
 
 - **Scope:** PR #454 (C8.8, C8.1, D8.4), deployed the same afternoon the

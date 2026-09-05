@@ -67,6 +67,9 @@ export interface AnalyticsStackProps extends cdk.StackProps {
    * METADATA + SETTINGS#WORKSPACE rows written.
    */
   readonly tenantSeederLambda: lambda.IFunction;
+  /** Cost-redesign C7.3 — the lifecycle functions join the control-plane errors alarm as further terms. */
+  readonly tenantProvisionerLambda?: lambda.IFunction;
+  readonly tenantDeprovisionerLambda?: lambda.IFunction;
 
   /**
    * Comma-separated list of CORS allowed origins, sourced from
@@ -415,13 +418,20 @@ export class AnalyticsStack extends cdk.Stack {
       period: cdk.Duration.minutes(5),
       statistic: 'Sum',
     });
+    const controlPlaneTerms: Record<string, cloudwatch.IMetric> = { seeder: tenantSeederErrorsMetric };
+    if (props.tenantProvisionerLambda) {
+      controlPlaneTerms.prov = props.tenantProvisionerLambda.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' });
+    }
+    if (props.tenantDeprovisionerLambda) {
+      controlPlaneTerms.deprov = props.tenantDeprovisionerLambda.metricErrors({ period: cdk.Duration.minutes(5), statistic: 'Sum' });
+    }
     const controlPlaneErrorsAlarm = new cloudwatch.Alarm(this, 'TenantSeederErrorAlarm', {
       alarmName: 'edforge-control-plane-functions-errors',
       alarmDescription:
-        'A tenant-lifecycle Lambda (tenant-seeder) errored. A just-provisioned tenant is likely missing identity METADATA/SETTINGS rows — the tenant cannot log in or create schools until manually repaired.',
+        'A tenant-lifecycle Lambda (tenant-seeder, provisioner or deprovisioner) errored. A just-provisioned tenant is likely missing identity METADATA/SETTINGS rows — the tenant cannot log in or create schools until manually repaired.',
       metric: new cloudwatch.MathExpression({
-        expression: 'FILL(seeder, 0)',
-        usingMetrics: { seeder: tenantSeederErrorsMetric },
+        expression: Object.keys(controlPlaneTerms).map((k) => `FILL(${k}, 0)`).join(' + '),
+        usingMetrics: controlPlaneTerms,
         period: cdk.Duration.minutes(5),
         label: 'Control-plane function errors',
       }),

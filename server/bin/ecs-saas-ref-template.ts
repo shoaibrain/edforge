@@ -30,7 +30,8 @@ import { DestroyPolicySetter } from '../lib/utilities/destroy-policy-setter';
 import { CoreAppPlaneStack } from '../lib/bootstrap-template/core-appplane-stack';
 import { getEnv } from '../lib/utilities/helper-functions';
 import { isProdAccount } from '../lib/utilities/account-guards';
-import { shouldSynthesizeAdvancedTemplate } from '../lib/utilities/stack-gates';
+import { shouldSynthesizeAdvancedTemplate, shouldSynthesizeSbtScriptJobs } from '../lib/utilities/stack-gates';
+import { API_B_URL_EXPORT } from '../lib/utilities/function-names';
 import { ControlPlaneStack } from '../lib/bootstrap-template/control-plane-stack';
 import { SharedInfraStack } from '../lib/shared-infra/shared-infra-stack';
 import { AnalyticsStack } from '../lib/analytics/analytics-stack';
@@ -170,6 +171,9 @@ const sharedInfraStack = new SharedInfraStack(app, 'shared-infra-stack', {
 
 const controlPlaneStack = new ControlPlaneStack(app, 'controlplane-stack', {
   systemAdminEmail: systemAdminEmail,
+  // The named export is live in every environment; referencing the construct
+  // would mint a second, auto-named export that only a shared-infra deploy creates.
+  tenantApiUrl: cdk.Fn.importValue(API_B_URL_EXPORT),
   accessLogsBucket: sharedInfraStack.accessLogsBucket,
   distro: sharedInfraStack.adminSiteDistro,
   adminSiteUrl: sharedInfraStack.adminSiteUrl,
@@ -187,6 +191,7 @@ const coreAppPlaneStack = new CoreAppPlaneStack(app, 'core-appplane-stack', {
   clientAppUrl: clientAppUrl,
   tenantMappingTable: sharedInfraStack.tenantMappingTable,
   operatorAlertEmail,
+  scriptJobsEnabled: shouldSynthesizeSbtScriptJobs(),
   terminationProtection: stackTerminationProtection,
   env
 });
@@ -202,6 +207,8 @@ const analyticsStack = new AnalyticsStack(app, 'analytics-stack', {
   analyticsEnabled,
   // Phase 4 (Sprint I-2) — pilot observability inputs
   tenantSeederLambda: controlPlaneStack.tenantSeeder.lambda,
+  tenantProvisionerLambda: controlPlaneStack.tenantLifecycle.provisioner,
+  tenantDeprovisionerLambda: controlPlaneStack.tenantLifecycle.deprovisioner,
   // CORS origins for the pdfAssetsBucket — operator-supplied via
   // CDK_PARAM_CORS_ALLOWED_ORIGINS so EdForge ships no hardcoded
   // production URLs (S9 pre-flight invariant).

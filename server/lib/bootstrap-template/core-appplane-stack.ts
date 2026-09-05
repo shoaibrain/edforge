@@ -11,6 +11,7 @@ import * as snsSubs from 'aws-cdk-lib/aws-sns-subscriptions';
 import { addTemplateTag } from '../utilities/helper-functions';
 import { CoreAppPlaneNag } from '../cdknag/core-app-plane-nag';
 import * as sbt from '@cdklabs/sbt-aws';
+import { PROVISIONING_ALERT_TOPIC_NAME } from './tenant-lifecycle-lambdas';
 
 interface CoreAppPlaneStackProps extends cdk.StackProps {
   eventManager: sbt.IEventManager
@@ -26,6 +27,13 @@ interface CoreAppPlaneStackProps extends cdk.StackProps {
    * dangling no-subscriber target that silently drops alarm notifications.
    */
   operatorAlertEmail: string
+  /**
+   * Cost-redesign C7.3 — synthesize the SBT CodeBuild script jobs (two KMS
+   * keys, two projects, two state machines, the CodeBuild-failures alarm).
+   * Off by default: the tenant lifecycle runs on the functions in
+   * controlplane-stack. CDK_PARAM_SBT_SCRIPT_JOBS=true brings them back.
+   */
+  scriptJobsEnabled?: boolean
 }
 
 export class CoreAppPlaneStack extends cdk.Stack {
@@ -36,116 +44,11 @@ export class CoreAppPlaneStack extends cdk.Stack {
 
 
 
-    const provisioningScriptJobProps : sbt.TenantLifecycleScriptJobProps = {
-      permissions: new PolicyDocument({
-        statements: [
-          new PolicyStatement({
-            actions: [
-              '*'
-            ],
-            resources: ['*'],
-            effect: Effect.ALLOW,
-          }),
-        ],
-      }),
-      script: fs.readFileSync('./lib/provision-scripts/provision-tenant.sh', 'utf8'),
-      environmentStringVariablesFromIncomingEvent: ['tenantId', 'tier', 'tenantName', 'email', 'country', 'archetype', 'tenantTag', 'useFederation', 'useEc2', 'useRProxy'],
-      environmentJSONVariablesFromIncomingEvent: ['prices'],
-      environmentVariablesToOutgoingEvent: {
-        tenantData:[
-          'tenantId',
-          'tenantS3Bucket',
-          'tenantConfig',
-          'prices', // added so we don't lose it for targets beyond provisioning (ex. billing)
-          'tenantName', // added so we don't lose it for targets beyond provisioning (ex. billing)
-          'email', // added so we don't lose it for targets beyond provisioning (ex. billing)
-          'tier', // required for TenantSeeder to determine DynamoDB table
-          'country', // required for TenantSeeder to seed country-specific workspace settings
-          'archetype', // required for TenantSeeder to seed archetype-first workspace settings (PABSON/GENERIC)
-          'tenantTag', // required for TenantSeeder to write tenantTag to METADATA (production / internal-dev / internal-dev-rehearsal)
-        ],
-        tenantRegistrationData: ['registrationStatus'],
-      },
-      scriptEnvironmentVariables: {
-        // CDK_PARAM_SYSTEM_ADMIN_EMAIL removed - not used in provision-tenant.sh
-        EVENT_BUS_NAME: props.eventBusName, // SBT Event Bus Name for microservices
-      },
-      eventManager: props.eventManager,
-      // SBT's ScriptJob spreads projectProps last into the CodeBuild Project;
-      // without an explicit log group CodeBuild writes to /aws/codebuild/<name>
-      // with no retention.
-      projectProps: {
-        logging: {
-          cloudWatch: {
-            logGroup: new logs.LogGroup(this, 'ProvisioningBuildLogs', {
-              retention: logs.RetentionDays.ONE_MONTH,
-              removalPolicy: cdk.RemovalPolicy.DESTROY,
-            }),
-          },
-        },
-      },
-    };
-
-    const deprovisioningScriptJobProps: sbt.TenantLifecycleScriptJobProps = {
-      permissions: new PolicyDocument({
-        statements: [
-          new PolicyStatement({
-            actions: [
-              '*'
-            ],
-            resources: ['*'],
-            effect: Effect.ALLOW,
-          }),
-        ],
-      }),
-      script: fs.readFileSync('./lib/provision-scripts/deprovision-tenant.sh', 'utf8'),
-      environmentStringVariablesFromIncomingEvent: ['tenantId', 'tier'],
-      environmentVariablesToOutgoingEvent: {
-        tenantRegistrationData:['registrationStatus']
-      },
-
-      scriptEnvironmentVariables: {
-        TENANT_STACK_MAPPING_TABLE: props.tenantMappingTable.tableName,
-        EVENT_BUS_NAME: props.eventBusName, // Match provision script's env vars
-      },
-      eventManager: props.eventManager,
-      projectProps: {
-        logging: {
-          cloudWatch: {
-            logGroup: new logs.LogGroup(this, 'DeprovisioningBuildLogs', {
-              retention: logs.RetentionDays.ONE_MONTH,
-              removalPolicy: cdk.RemovalPolicy.DESTROY,
-            }),
-          },
-        },
-      },
-    };
-
-    const provisioningScriptJob: sbt.ProvisioningScriptJob = new sbt.ProvisioningScriptJob(
-      this,
-      'provisioningScriptJob', 
-      provisioningScriptJobProps
-    );
-
-    const deprovisioningScriptJob: sbt.DeprovisioningScriptJob = new sbt.DeprovisioningScriptJob(
-      this,
-      'deprovisioningScriptJob', 
-      deprovisioningScriptJobProps
-    );
-
-    new sbt.CoreApplicationPlane(this, 'coreappplane-sbt', {
-      eventManager: props.eventManager,
-      scriptJobs: [provisioningScriptJob, deprovisioningScriptJob]
-    });
-
-    // =========================================================
-    // CloudWatch Alarm for CodeBuild Provisioning Failures
-    // ISSUE-008 safety net: SBT's Step Functions Catch block masks
-    // CodeBuild failures as success. This alarm fires on the raw
-    // CodeBuild FailedBuilds metric to ensure operators are notified.
-    // =========================================================
+    // The topic the CodeBuild alarm fed. Since cost-redesign C7 the provisioner
+    // and deprovisioner functions (controlplane-stack) publish refusals and
+    // failures to it by name, so it stays whether or not the script jobs exist.
     const provisioningAlertTopic = new sns.Topic(this, 'ProvisioningAlertTopic', {
-      topicName: 'edforge-provisioning-alerts',
+      topicName: PROVISIONING_ALERT_TOPIC_NAME,
       displayName: 'EdForge Provisioning Failure Alerts',
     });
 
@@ -172,35 +75,145 @@ export class CoreAppPlaneStack extends cdk.Stack {
       },
     }));
 
-    // One alarm for both lifecycle jobs (cost-redesign C0.4: the account is
-    // held to ten alarms). Either project failing is the same operator
-    // action — read the CodeBuild log — so the two FailedBuilds metrics are
-    // summed; FILL keeps a project that has never run from yielding
-    // INSUFFICIENT_DATA for the whole expression.
-    const provisioningFailedAlarm = new cloudwatch.Alarm(this, 'ProvisioningFailedAlarm', {
-      alarmName: 'edforge-provisioning-codebuild-failures',
-      alarmDescription:
-        'Fires when a provisioning or deprovisioning CodeBuild job fails (ISSUE-008: SBT masks these as success)',
-      metric: new cloudwatch.MathExpression({
-        expression: 'FILL(prov, 0) + FILL(deprov, 0)',
-        usingMetrics: {
-          prov: provisioningScriptJob.codebuildProject.metricFailedBuilds({
-            period: cdk.Duration.minutes(1),
-          }),
-          deprov: deprovisioningScriptJob.codebuildProject.metricFailedBuilds({
-            period: cdk.Duration.minutes(1),
-          }),
+    if (props.scriptJobsEnabled) {
+      const provisioningScriptJobProps : sbt.TenantLifecycleScriptJobProps = {
+        permissions: new PolicyDocument({
+          statements: [
+            new PolicyStatement({
+              actions: [
+                '*'
+              ],
+              resources: ['*'],
+              effect: Effect.ALLOW,
+            }),
+          ],
+        }),
+        script: fs.readFileSync('./lib/provision-scripts/provision-tenant.sh', 'utf8'),
+        environmentStringVariablesFromIncomingEvent: ['tenantId', 'tier', 'tenantName', 'email', 'country', 'archetype', 'tenantTag', 'useFederation', 'useEc2', 'useRProxy'],
+        environmentJSONVariablesFromIncomingEvent: ['prices'],
+        environmentVariablesToOutgoingEvent: {
+          tenantData:[
+            'tenantId',
+            'tenantS3Bucket',
+            'tenantConfig',
+            'prices', // added so we don't lose it for targets beyond provisioning (ex. billing)
+            'tenantName', // added so we don't lose it for targets beyond provisioning (ex. billing)
+            'email', // added so we don't lose it for targets beyond provisioning (ex. billing)
+            'tier', // required for TenantSeeder to determine DynamoDB table
+            'country', // required for TenantSeeder to seed country-specific workspace settings
+            'archetype', // required for TenantSeeder to seed archetype-first workspace settings (PABSON/GENERIC)
+            'tenantTag', // required for TenantSeeder to write tenantTag to METADATA (production / internal-dev / internal-dev-rehearsal)
+          ],
+          tenantRegistrationData: ['registrationStatus'],
         },
-        period: cdk.Duration.minutes(1),
-        label: 'Failed lifecycle builds',
-      }),
-      threshold: 1,
-      evaluationPeriods: 1,
-      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
-      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-    });
+        scriptEnvironmentVariables: {
+          // CDK_PARAM_SYSTEM_ADMIN_EMAIL removed - not used in provision-tenant.sh
+          EVENT_BUS_NAME: props.eventBusName, // SBT Event Bus Name for microservices
+        },
+        eventManager: props.eventManager,
+        // SBT's ScriptJob spreads projectProps last into the CodeBuild Project;
+        // without an explicit log group CodeBuild writes to /aws/codebuild/<name>
+        // with no retention.
+        projectProps: {
+          logging: {
+            cloudWatch: {
+              logGroup: new logs.LogGroup(this, 'ProvisioningBuildLogs', {
+                retention: logs.RetentionDays.ONE_MONTH,
+                removalPolicy: cdk.RemovalPolicy.DESTROY,
+              }),
+            },
+          },
+        },
+      };
 
-    provisioningFailedAlarm.addAlarmAction(new cloudwatch_actions.SnsAction(provisioningAlertTopic));
+      const deprovisioningScriptJobProps: sbt.TenantLifecycleScriptJobProps = {
+        permissions: new PolicyDocument({
+          statements: [
+            new PolicyStatement({
+              actions: [
+                '*'
+              ],
+              resources: ['*'],
+              effect: Effect.ALLOW,
+            }),
+          ],
+        }),
+        script: fs.readFileSync('./lib/provision-scripts/deprovision-tenant.sh', 'utf8'),
+        environmentStringVariablesFromIncomingEvent: ['tenantId', 'tier'],
+        environmentVariablesToOutgoingEvent: {
+          tenantRegistrationData:['registrationStatus']
+        },
+
+        scriptEnvironmentVariables: {
+          TENANT_STACK_MAPPING_TABLE: props.tenantMappingTable.tableName,
+          EVENT_BUS_NAME: props.eventBusName, // Match provision script's env vars
+        },
+        eventManager: props.eventManager,
+        projectProps: {
+          logging: {
+            cloudWatch: {
+              logGroup: new logs.LogGroup(this, 'DeprovisioningBuildLogs', {
+                retention: logs.RetentionDays.ONE_MONTH,
+                removalPolicy: cdk.RemovalPolicy.DESTROY,
+              }),
+            },
+          },
+        },
+      };
+
+      const provisioningScriptJob: sbt.ProvisioningScriptJob = new sbt.ProvisioningScriptJob(
+        this,
+        'provisioningScriptJob', 
+        provisioningScriptJobProps
+      );
+
+      const deprovisioningScriptJob: sbt.DeprovisioningScriptJob = new sbt.DeprovisioningScriptJob(
+        this,
+        'deprovisioningScriptJob', 
+        deprovisioningScriptJobProps
+      );
+
+      new sbt.CoreApplicationPlane(this, 'coreappplane-sbt', {
+        eventManager: props.eventManager,
+        scriptJobs: [provisioningScriptJob, deprovisioningScriptJob]
+      });
+
+      // =========================================================
+      // CloudWatch Alarm for CodeBuild Provisioning Failures
+      // ISSUE-008 safety net: SBT's Step Functions Catch block masks
+      // CodeBuild failures as success. This alarm fires on the raw
+      // CodeBuild FailedBuilds metric to ensure operators are notified.
+      // =========================================================
+      // One alarm for both lifecycle jobs (cost-redesign C0.4: the account is
+      // held to ten alarms). Either project failing is the same operator
+      // action — read the CodeBuild log — so the two FailedBuilds metrics are
+      // summed; FILL keeps a project that has never run from yielding
+      // INSUFFICIENT_DATA for the whole expression.
+      const provisioningFailedAlarm = new cloudwatch.Alarm(this, 'ProvisioningFailedAlarm', {
+        alarmName: 'edforge-provisioning-codebuild-failures',
+        alarmDescription:
+          'Fires when a provisioning or deprovisioning CodeBuild job fails (ISSUE-008: SBT masks these as success)',
+        metric: new cloudwatch.MathExpression({
+          expression: 'FILL(prov, 0) + FILL(deprov, 0)',
+          usingMetrics: {
+            prov: provisioningScriptJob.codebuildProject.metricFailedBuilds({
+              period: cdk.Duration.minutes(1),
+            }),
+            deprov: deprovisioningScriptJob.codebuildProject.metricFailedBuilds({
+              period: cdk.Duration.minutes(1),
+            }),
+          },
+          period: cdk.Duration.minutes(1),
+          label: 'Failed lifecycle builds',
+        }),
+        threshold: 1,
+        evaluationPeriods: 1,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      });
+
+      provisioningFailedAlarm.addAlarmAction(new cloudwatch_actions.SnsAction(provisioningAlertTopic));
+    }
 
     // REMOVED: Legacy Application client infrastructure
     // The legacy Application client (client/Application/) has been fully replaced by

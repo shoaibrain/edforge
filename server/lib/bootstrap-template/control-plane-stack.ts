@@ -11,6 +11,7 @@ import * as sbt from '@cdklabs/sbt-aws';
 import { StaticSiteDistro } from '../shared-infra/static-site-distro';
 import { EventDlqStack } from '../shared-infra/event-dlq-stack';
 import { TenantSeederLambda } from './tenant-seeder-lambda';
+import { TenantLifecycleLambdas } from './tenant-lifecycle-lambdas';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { applyLogRetentionToFunctions } from '../utilities/log-retention';
 
@@ -20,6 +21,8 @@ interface ControlPlaneStackProps extends cdk.StackProps {
   distro: StaticSiteDistro
   adminSiteUrl: string
   corsAllowedOrigins: string
+  /** API-B base URL (shared-infra); the provisioner writes it into tenantConfig.apiGatewayUrl. */
+  tenantApiUrl: string
 }
 
 export class ControlPlaneStack extends cdk.Stack {
@@ -36,6 +39,12 @@ export class ControlPlaneStack extends cdk.Stack {
    * without duplicating the Lambda construction or hardcoding ARNs.
    */
   public readonly tenantSeeder: TenantSeederLambda;
+  /**
+   * Cost-redesign C7.1/C7.2 — the provisioner and deprovisioner functions
+   * that replaced the SBT CodeBuild script jobs. Exposed so analytics-stack
+   * can add their errors to the control-plane functions alarm.
+   */
+  public readonly tenantLifecycle: TenantLifecycleLambdas;
 
   constructor (scope: Construct, id: string, props: ControlPlaneStackProps) {
     super(scope, id, props);
@@ -129,6 +138,19 @@ export class ControlPlaneStack extends cdk.Stack {
     // Moved here from SharedInfraStack to avoid circular dependency.
     this.tenantSeeder = new TenantSeederLambda(this, 'TenantSeeder', {
       eventBusName: this.eventBusName,
+    });
+
+    // V1 is BASIC-only: one tenant stack and one table per service, named as
+    // the seeder and the analytics stack name them.
+    this.tenantLifecycle = new TenantLifecycleLambdas(this, 'TenantLifecycle', {
+      eventManager: this.eventManager,
+      tenantStackName: 'tenant-template-stack-basic',
+      tenantApiUrl: props.tenantApiUrl,
+      tableNames: {
+        identity: 'edforge-identity-basic',
+        academics: 'edforge-academics-basic',
+        finance: 'edforge-finance-basic',
+      },
     });
 
     // NOTE: C0a (Cognito PostAuthentication trigger) was originally wired
