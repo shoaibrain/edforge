@@ -33,7 +33,6 @@ import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cwActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as path from 'path';
 import * as s3 from 'aws-cdk-lib/aws-s3';
-import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import { ScheduledLambda } from '../cdk-patterns/scheduled-lambda';
 import { isProdAccount } from '../utilities/account-guards';
 import { AnalyticsNag } from '../cdknag/analytics-nag';
@@ -68,13 +67,6 @@ export interface AnalyticsStackProps extends cdk.StackProps {
    */
   readonly analyticsEnabled?: string;
 
-  /**
-   * Phase 4 (Sprint I-2) — ALB full name for CloudWatch dimension
-   * (`app/<name>/<suffix>`). From `sharedInfraStack.alb.loadBalancerFullName`.
-   * Used by the pilot 5xx alarm + dashboard to watch tenant-facing HTTP
-   * errors across every tenant service sharing the ALB.
-   */
-  readonly albLoadBalancerFullName: string;
 
   /**
    * Phase 4 (Sprint I-2) — tenant-seeder Lambda reference. Error alarm
@@ -449,13 +441,6 @@ export class AnalyticsStack extends cdk.Stack {
     // shared-infra-stack (an UPSTREAM dependency via controlplane-stack)
     // and we get the LoadBalancer dimension as a string prop to avoid
     // cross-stack coupling beyond what CFN exports already exist for.
-    const alb5xxMetric = new cloudwatch.Metric({
-      namespace: 'AWS/ApplicationELB',
-      metricName: 'HTTPCode_Target_5XX_Count',
-      dimensionsMap: { LoadBalancer: props.albLoadBalancerFullName },
-      statistic: 'Sum',
-      period: cdk.Duration.minutes(5),
-    });
 
     // ----------------------------------------------------------
     // Unified pilot dashboard.
@@ -477,34 +462,6 @@ export class AnalyticsStack extends cdk.Stack {
           'Runbook: `docs/operations/saraswati-oncall.md` · Drill SOP: `docs/operations/paging-drill.md` · SLOs: `docs/operations/saraswati-slos.md`',
         width: 24,
         height: 3,
-      }),
-    );
-
-    pilotDashboard.addWidgets(
-      new cloudwatch.GraphWidget({
-        title: 'Tenant-facing ALB — backend 5xx (CRITICAL >10 / 5min)',
-        left: [alb5xxMetric],
-        width: 12,
-      }),
-      new cloudwatch.GraphWidget({
-        title: 'Tenant-facing ALB — 4xx vs 2xx',
-        left: [
-          new cloudwatch.Metric({
-            namespace: 'AWS/ApplicationELB',
-            metricName: 'HTTPCode_Target_4XX_Count',
-            dimensionsMap: { LoadBalancer: props.albLoadBalancerFullName },
-            statistic: 'Sum',
-            period: cdk.Duration.minutes(5),
-          }),
-          new cloudwatch.Metric({
-            namespace: 'AWS/ApplicationELB',
-            metricName: 'HTTPCode_Target_2XX_Count',
-            dimensionsMap: { LoadBalancer: props.albLoadBalancerFullName },
-            statistic: 'Sum',
-            period: cdk.Duration.minutes(5),
-          }),
-        ],
-        width: 12,
       }),
     );
 
@@ -683,110 +640,6 @@ export class AnalyticsStack extends cdk.Stack {
       ],
     });
 
-    // ------------------------------------------------------------
-    // Sprint 2 — attach 5 analytics routes to the existing tenant API
-    //
-    // The tenant API lives in shared-infra-stack. We import its REST API id,
-    // root resource id, and authorizer ARN via CFN imports. Routes are added
-    // here (not via the tenant-api-prod.json OpenAPI spec) to keep the
-    // analytics stack self-contained and to avoid a cross-stack ARN cycle
-    // (shared-infra would otherwise need this stack's Lambda ARN at synth
-    // time, while this stack needs shared-infra's API root at synth time).
-    //
-    // CARDINAL RULE: we do NOT modify the shared Python authorizer. It is
-    // reused by identity/academics/finance. We only reference it by ARN.
-    // ------------------------------------------------------------
-    const tenantApi = apigateway.RestApi.fromRestApiAttributes(
-      this,
-      'TenantApiImport',
-      {
-        restApiId: cdk.Fn.importValue('TenantApiRestApiId'),
-        rootResourceId: cdk.Fn.importValue('TenantApiRootResourceId'),
-      },
-    );
-    // sameEnvironment=true lets CDK add the required lambda:InvokeFunction
-    // permission for the imported authorizer — without it the authorizer
-    // can be referenced but API Gateway can't actually invoke it.
-    const authorizerFn = lambda.Function.fromFunctionAttributes(
-      this,
-      'TenantApiAuthorizerImport',
-      {
-        functionArn: cdk.Fn.importValue('TenantApiAuthorizerArn'),
-        sameEnvironment: true,
-      },
-    );
-    // Use TokenAuthorizer (not RequestAuthorizer) to match the type the
-    // existing tenant_authorizer.py Lambda expects: it reads
-    // event['authorizationToken'], which is only populated by TOKEN-type
-    // authorizers. The shared authorizer in the Swagger spec is also TOKEN.
-    // Construct ID 'SharedTenantTokenAuthorizer' (not 'SharedTenantAuthorizer')
-    // forces CloudFormation to create a new Authorizer resource rather than
-    // attempt an in-place update of the previous REQUEST-type one, which is
-    // not supported (Type is immutable on AWS::ApiGateway::Authorizer).
-    const sharedAuthorizer = new apigateway.TokenAuthorizer(
-      this,
-      'SharedTenantTokenAuthorizer',
-      {
-        handler: authorizerFn,
-        identitySource: 'method.request.header.Authorization',
-        resultsCacheTtl: cdk.Duration.minutes(5),
-      },
-    );
-
-    const lambdaIntegration = new apigateway.LambdaIntegration(this.apiLambda, {
-      proxy: true,
-    });
-
-    // Helper: build a resource path, attach a GET method with shared
-    // authorizer, and add a CORS OPTIONS mock integration on the same
-    // resource. CORS mirrors the pattern in `tenant-api-prod.json`:
-    // OPTIONS returns a static 204 with Access-Control-* headers.
-    const addRoute = (pathSegments: string[]): apigateway.Resource => {
-      let current: apigateway.IResource = tenantApi.root;
-      for (const seg of pathSegments) {
-        const existing = current.getResource(seg);
-        current = existing ?? current.addResource(seg);
-      }
-      const resource = current as apigateway.Resource;
-      resource.addMethod('GET', lambdaIntegration, {
-        authorizer: sharedAuthorizer,
-        authorizationType: apigateway.AuthorizationType.CUSTOM,
-        // apiKeyRequired is driven by the authorizer's usageIdentifierKey;
-        // no explicit flag needed.
-      });
-      // OPTIONS preflight — mock 204 with wildcard CORS. Production CORS
-      // lockdown should go through the authorizer's corsOrigin echo, same
-      // as identity/academics/finance methods.
-      resource.addCorsPreflight({
-        allowOrigins: apigateway.Cors.ALL_ORIGINS,
-        allowMethods: ['GET', 'OPTIONS'],
-        allowHeaders: [
-          'Content-Type',
-          'Authorization',
-          'X-Amz-Date',
-          'X-Api-Key',
-          'X-Amz-Security-Token',
-          'X-Tenant-Id',
-          'X-Correlation-Id',
-          'X-Request-Id',
-        ],
-        allowCredentials: true,
-      });
-      return resource;
-    };
-
-    // Routes. Order matters for nested paths — deeper paths added first so
-    // their parents are created as Resources (not as bare GET targets).
-    addRoute(['analytics', 'tenants', '{tenantId}', 'adoption-report']);
-    addRoute(['analytics', 'tenants', '{tenantId}', 'export-csv-url']);
-    addRoute(['analytics', 'tenants', '{tenantId}']);
-    addRoute(['analytics', 'fleet']);
-    // Session history is the calling user's own analytics. Placed under
-    // /analytics/me/session-history rather than /users/me/* to avoid a
-    // collision with the existing /users resource registered by the OpenAPI
-    // spec (tenant-api-prod.json). Conceptually it's analytics data, so
-    // the /analytics prefix is the correct home anyway.
-    addRoute(['analytics', 'me', 'session-history']);
 
     // S2.T4 — Lambda invoke permission is auto-created by LambdaIntegration
     // for each method. No explicit Lambda.addPermission needed; CDK emits

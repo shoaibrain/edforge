@@ -207,7 +207,6 @@ const analyticsStack = new AnalyticsStack(app, 'analytics-stack', {
   apiBInvokePermission: process.env.CDK_PARAM_LAMBDA_SERVICES === 'true',
   analyticsEnabled,
   // Phase 4 (Sprint I-2) — pilot observability inputs
-  albLoadBalancerFullName: sharedInfraStack.alb.loadBalancerFullName,
   tenantSeederLambda: controlPlaneStack.tenantSeeder.lambda,
   // CORS origins for the pdfAssetsBucket — operator-supplied via
   // CDK_PARAM_CORS_ALLOWED_ORIGINS so EdForge ships no hardcoded
