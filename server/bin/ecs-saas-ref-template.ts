@@ -31,6 +31,7 @@ import { CoreAppPlaneStack } from '../lib/bootstrap-template/core-appplane-stack
 import { getEnv } from '../lib/utilities/helper-functions';
 import { isProdAccount } from '../lib/utilities/account-guards';
 import { shouldSynthesizeAdvancedTemplate, shouldSynthesizeSbtScriptJobs } from '../lib/utilities/stack-gates';
+import { API_B_URL_EXPORT } from '../lib/utilities/function-names';
 import { ControlPlaneStack } from '../lib/bootstrap-template/control-plane-stack';
 import { SharedInfraStack } from '../lib/shared-infra/shared-infra-stack';
 import { AnalyticsStack } from '../lib/analytics/analytics-stack';
@@ -170,7 +171,9 @@ const sharedInfraStack = new SharedInfraStack(app, 'shared-infra-stack', {
 
 const controlPlaneStack = new ControlPlaneStack(app, 'controlplane-stack', {
   systemAdminEmail: systemAdminEmail,
-  tenantApiUrl: sharedInfraStack.apiGatewayLambda.baseUrl,
+  // The named export is live in every environment; referencing the construct
+  // would mint a second, auto-named export that only a shared-infra deploy creates.
+  tenantApiUrl: cdk.Fn.importValue(API_B_URL_EXPORT),
   accessLogsBucket: sharedInfraStack.accessLogsBucket,
   distro: sharedInfraStack.adminSiteDistro,
   adminSiteUrl: sharedInfraStack.adminSiteUrl,
