@@ -14,3 +14,12 @@ export const ADVANCED_TEMPLATE_FLAG = 'CDK_PARAM_ADVANCED_TEMPLATE_ENABLED';
 export const shouldSynthesizeAdvancedTemplate = (
   env: NodeJS.ProcessEnv = process.env,
 ): boolean => (env[ADVANCED_TEMPLATE_FLAG] ?? '').trim().toLowerCase() === 'true';
+
+// Cost-redesign C7.3: the SBT CodeBuild script jobs (and their two KMS keys)
+// were replaced by the tenant lifecycle functions in controlplane-stack. The
+// jobs stay in the code as the silo-tier path and synthesize only on request.
+export const SBT_SCRIPT_JOBS_FLAG = 'CDK_PARAM_SBT_SCRIPT_JOBS';
+
+export const shouldSynthesizeSbtScriptJobs = (
+  env: NodeJS.ProcessEnv = process.env,
+): boolean => (env[SBT_SCRIPT_JOBS_FLAG] ?? '').trim().toLowerCase() === 'true';

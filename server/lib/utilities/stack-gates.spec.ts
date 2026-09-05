@@ -22,3 +22,13 @@ describe('shouldSynthesizeAdvancedTemplate (C0.1)', () => {
     ).toBe(false);
   });
 });
+
+describe('shouldSynthesizeSbtScriptJobs (C7.3)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { shouldSynthesizeSbtScriptJobs, SBT_SCRIPT_JOBS_FLAG } = require('./stack-gates');
+  it('is off unless the flag is exactly true', () => {
+    expect(shouldSynthesizeSbtScriptJobs({})).toBe(false);
+    expect(shouldSynthesizeSbtScriptJobs({ [SBT_SCRIPT_JOBS_FLAG]: 'false' })).toBe(false);
+    expect(shouldSynthesizeSbtScriptJobs({ [SBT_SCRIPT_JOBS_FLAG]: ' TRUE ' })).toBe(true);
+  });
+});
