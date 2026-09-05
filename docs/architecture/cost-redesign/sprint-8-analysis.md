@@ -96,6 +96,14 @@ since the final Sprint 3 deploy.
   the current release and pin the CDK CLI as a devDependency so `npx cdk`
   resolves deterministically; one diff per stack, expecting only the helper
   functions' runtime and code hashes to change.
+  Diff review of the bump found one operational consequence: the controlplane
+  deploy re-runs the AdminWeb `BucketDeployment` (the library added a
+  `WaitForDistributionInvalidation` property), which re-uploads the AdminWeb
+  source zip and starts the AdminWeb pipeline through its S3 poll trigger — a
+  rebuild plus CloudFront invalidation. The Sprint 0 controlplane deploy did
+  the same on 2026-09-03 and succeeded. Two of the CI workflows run `ts-node`
+  from the repo root, where TypeScript is 4.9; the `esnext.disposable` lib the
+  new declarations need therefore lives in `tsconfig.cdk.json` only.
 - **D8.5 (E)** Operator decision: remove the keys, plans and parameters in
   C8.5, or fix the authorizer grant and require keys if tiered throttling is
   wanted. Nothing changes until decided.
@@ -116,4 +124,4 @@ wrapper, verification below. Filled in as executed.
 |---|---|
 | tenant-template | Diff shows `GlobalSecondaryIndexes` +GSI15 on the three tables and new function bundles, nothing else; `describe-table` reports GSI15 `ACTIVE`; a bulk job run end to end leaves no row with gsi15 keys |
 | analytics | Janitor `REPORT` lines show a Query, not a Scan; `ConsumedReadCapacityUnits` on both tables falls to traffic only; `edforge-analytics-functions-errors` returns to OK within 15 minutes of the deploy; a login lands as `auth.login.success` |
-| CDK bump | Every helper function on a current runtime; no other resource changed |
+| CDK bump | Every helper function on a current runtime; shared-infra authorizer answers 401/200; controlplane's AdminWeb pipeline execution succeeds and the console loads |
