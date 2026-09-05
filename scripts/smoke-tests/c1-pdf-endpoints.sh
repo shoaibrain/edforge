@@ -71,7 +71,7 @@ check_pdf() {
 fetch_pdf() {
   local url="$1" out_pdf="$2" out_hdr="$3"
   curl -s -D "$out_hdr" -o "$out_pdf" -w "%{http_code}" \
-    -H "Authorization: Bearer $JWT" "$url"
+    -H "Authorization: Bearer $JWT" -H "Accept: application/pdf" "$url"
 }
 
 ctype_from_headers() {
