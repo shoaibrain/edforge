@@ -289,6 +289,29 @@ export class EcsDynamoDB extends Construct {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // GSI15: running jobs (cost-redesign Sprint 8) — sparse.
+    //
+    // Access pattern: the job janitors ask "which jobs have been running
+    // since before <cutoff>?" across every tenant. Until this index they
+    // answered it with a Scan of the whole table every five minutes, which
+    // by September 2026 was 91 % of the account's DynamoDB reads and grew
+    // with the table.
+    //
+    // Key shape:
+    //   gsi15pk = RUNNING_JOB#{entityType}   (FINANCE_JOB | IEMIS_IMPORT_JOB)
+    //   gsi15sk = startedAt                  (ISO-8601, so `< cutoff` works)
+    //
+    // SPARSE: `markRunning` sets both attributes; every terminal transition
+    // (succeeded, failed, janitor sweep) REMOVEs them, so the index holds
+    // only rows that are running right now — a handful of items, never the
+    // job history. The janitors Query it with `gsi15sk < :cutoff`.
+    this.table.addGlobalSecondaryIndex({
+      indexName: 'GSI15',
+      partitionKey: { name: 'gsi15pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'gsi15sk', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     /*
 
     // GSI11: Staff by Department Index - List all staff in a department

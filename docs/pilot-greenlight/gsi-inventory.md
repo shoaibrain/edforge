@@ -1,7 +1,7 @@
 # GSI inventory — `edforge-data-table` (per-tenant DDB)
 
 **Source of truth:** [`server/lib/tenant-template/ecs-dynamodb.ts`](../../server/lib/tenant-template/ecs-dynamodb.ts).
-**Last reviewed:** 2026-07-04 (EPIC-FB Sprints FB-1.2 + FB-2.2 — FamilyGroup (`FAMILY#`, academics table) and BillingAgreement (`AGREEMENT#`, finance table) overload existing GSI1/GSI2 slots with new sort-key prefixes; no new GSI. GSI11/GSI12 remain reserved-but-unused).
+**Last reviewed:** 2026-09-05 (cost-redesign Sprint 8 — GSI15 sparse running-jobs index for the job janitors; GSI14 row added retroactively). Previously 2026-07-04 (EPIC-FB Sprints FB-1.2 + FB-2.2 — FamilyGroup (`FAMILY#`, academics table) and BillingAgreement (`AGREEMENT#`, finance table) overload existing GSI1/GSI2 slots with new sort-key prefixes; no new GSI. GSI11/GSI12 remain reserved-but-unused).
 
 The tenant-template DynamoDB table reserves a numeric GSI slot per cross-entity access pattern. Slots are numbered linearly to keep the CDK shape predictable and the IAM policy stable. Adding a new GSI = pick the next free slot, claim it explicitly here, then add the `addGlobalSecondaryIndex(...)` call.
 
@@ -24,6 +24,8 @@ The table is **`PAY_PER_REQUEST`** (on-demand). Don't add `readCapacity` / `writ
 | **GSI9** | `gsi9pk` / `gsi9sk` | Block → CalendarDate child rows | Sparse — populated only on CalendarDate rows in a multi-day block. Sprint C4.2 |
 | **GSI10** | `gsi10pk` / `gsi10sk` | Prior-enrollment → AY2 provisional enrollments | Sparse — populated only on Enrollment rows carrying `priorEnrollmentId`. Sprint D.2.7 Phase 3 |
 | **GSI13** | `gsi13pk` / `gsi13sk` | symbolNumber → ExternalExamRegistration reverse-lookup | Sparse — populated only on ExternalExamRegistration rows in `SYMBOL_ASSIGNED` state. Sprint D.3.1 Phase 2 |
+| **GSI14** | `gsi14pk` / `gsi14sk` | Finance school + gradeLevel scope (invoices, payments) | Sparse — populated only when the grade snapshot resolved. Sprint A.3 |
+| **GSI15** | `gsi15pk` / `gsi15sk` | Running jobs, cross-tenant (`RUNNING_JOB#{entityType}` / `startedAt`) | Sparse — set by `markRunning`, REMOVEd by every terminal transition; the job janitors Query it instead of scanning the table. Cost-redesign Sprint 8 |
 
 ## Reserved-but-unused slots
 
@@ -141,7 +143,7 @@ Key builders: `EntityKeyBuilder.agreement` / `agreementMember` / `agreementActiv
 
 ## Next free slot after Sprint D.3 Phase 2
 
-**GSI14.** GSI11–GSI12 remain reserved (commented) per the table above; new patterns should use GSI14+ unless the access pattern matches the slot's original intent verbatim.
+**GSI16.** GSI14 (Sprint A.3) and GSI15 (cost-redesign Sprint 8) are taken; GSI11–GSI12 remain reserved (commented) per the table above; new patterns should use GSI16+ unless the access pattern matches the slot's original intent verbatim.
 
 ---
 

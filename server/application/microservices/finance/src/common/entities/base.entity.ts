@@ -203,6 +203,13 @@ export const EntityKeyBuilder = {
  * GSI key builders for finance service
  */
 export const GSIKeyBuilder = {
+  /**
+   * GSI15PK: the sparse running-jobs index the job janitor queries
+   * (cost-redesign Sprint 8). Set with `gsi15sk = startedAt` in
+   * `markRunning`; REMOVEd by every terminal transition.
+   */
+  runningJob: (entityType: 'FINANCE_JOB'): string => `RUNNING_JOB#${entityType}`,
+
   /** GSI1PK: School scope */
   schoolScope: (tenantId: string, schoolId: string): string =>
     `TENANT#${tenantId}#SCHOOL#${schoolId}`,

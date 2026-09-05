@@ -549,3 +549,36 @@ describe('reports-staging bucket — IEMIS staging expiry (cost-redesign C3.11)'
     expect(rules.find((r) => r.Id === 'transition-to-archive')).toBeDefined();
   });
 });
+
+describe('job janitors — cost-redesign Sprint 8 (sparse running-jobs index)', () => {
+  const t = synth();
+  const policies = Object.values(t.findResources('AWS::IAM::Policy')) as Array<{
+    Properties: { PolicyDocument: { Statement: Array<{ Action: string | string[]; Resource: unknown }> } };
+  }>;
+  const statements = policies.flatMap((p) => p.Properties.PolicyDocument.Statement);
+  const actionsOf = (st: { Action: string | string[] }) => (Array.isArray(st.Action) ? st.Action : [st.Action]);
+
+  it('both janitors sweep every 15 minutes', () => {
+    const schedules = Object.values(t.findResources('AWS::Scheduler::Schedule')) as Array<{
+      Properties: { ScheduleExpression: string };
+    }>;
+    const every15 = schedules.filter((s) => s.Properties.ScheduleExpression === 'cron(*/15 * * * ? *)');
+    expect(every15).toHaveLength(2);
+    expect(schedules.some((s) => s.Properties.ScheduleExpression === 'cron(*/5 * * * ? *)')).toBe(false);
+  });
+
+  it('neither janitor may Scan its table; each Queries the table\'s GSI15', () => {
+    const scanTargets = statements
+      .filter((st) => actionsOf(st).includes('dynamodb:Scan'))
+      .map((st) => JSON.stringify(st.Resource));
+    for (const table of ['edforge-academics-basic', 'edforge-finance-basic']) {
+      expect(scanTargets.some((r) => r.includes(`table/${table}`))).toBe(false);
+    }
+    const queryResources = statements
+      .filter((st) => actionsOf(st).includes('dynamodb:Query'))
+      .map((st) => JSON.stringify(st.Resource));
+    for (const table of ['edforge-academics-basic', 'edforge-finance-basic']) {
+      expect(queryResources.some((r) => r.includes(`table/${table}/index/GSI15`))).toBe(true);
+    }
+  });
+});

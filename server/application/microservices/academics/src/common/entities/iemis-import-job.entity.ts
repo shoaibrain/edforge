@@ -46,6 +46,11 @@ export interface IemisImportJob extends BaseEntity {
   schoolId: string;
   status: IemisImportJobStatus;
 
+  /** GSI15 (sparse running-jobs index): present only while `status === 'running'`. */
+  gsi15pk?: string;
+  /** GSI15 sort key: `startedAt`, so the janitor can range on it. */
+  gsi15sk?: string;
+
   /** Total rows submitted (does not change once set). */
   totalRows: number;
 

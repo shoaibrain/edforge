@@ -200,7 +200,7 @@ export class StaleFinanceJobSweeper implements OnApplicationBootstrap {
             // worker crashed before recording any); a fresh sentinel makes the
             // sweep reason unambiguous for the operator.
             UpdateExpression:
-              'SET #status = :failed, completedAt = :now, errors = :errors ADD version :one',
+              'SET #status = :failed, completedAt = :now, errors = :errors ADD version :one REMOVE gsi15pk, gsi15sk',
             ConditionExpression: '#status = :running',
             ExpressionAttributeNames: { '#status': 'status' },
             ExpressionAttributeValues: {

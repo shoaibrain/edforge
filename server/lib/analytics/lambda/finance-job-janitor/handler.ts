@@ -20,10 +20,16 @@
  *   built-in expiration handles it. The janitor is only for the parent
  *   FINANCE_JOB row.
  *
- * Why a Scan (not Query / GSI):
- *   The finance table has no GSI on (status, createdAt). Same rationale as
- *   iemis-job-janitor: at pilot scale, Scan + FilterExpression is bounded;
- *   revisit if the table grows past ~50k items.
+ * Why a Query on GSI15 (cost-redesign Sprint 8):
+ *   Until September 2026 this handler ran a Scan + FilterExpression over the
+ *   whole table every five minutes. A Scan is billed on the bytes it reads,
+ *   not the rows it returns, so the two janitors were 91 % of the account's
+ *   DynamoDB reads (≈ $2/month) and grew with the table. GSI15 is a sparse
+ *   index that only rows in `status='running'` populate (`gsi15pk =
+ *   RUNNING_JOB#FINANCE_JOB`, `gsi15sk = startedAt`); the service sets the
+ *   keys in `markRunning` and REMOVEs them on every terminal transition, so
+ *   one Query with `gsi15sk < cutoff` returns exactly the stale set for a
+ *   fraction of a read unit. The sweep runs every 15 minutes.
  *
  * Why 60 min staleness:
  *   Load test (Sprint I.7) shows 50-invoice ZIP export runs in ~17 s and
@@ -49,7 +55,7 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient,
-  ScanCommand,
+  QueryCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { SNSClient, PublishCommand } from '@aws-sdk/client-sns';
@@ -117,10 +123,10 @@ export async function handler(): Promise<SweepResult> {
     `[finance-job-janitor] sweep starting — staleThresholdMin=${STALE_THRESHOLD_MIN}, cutoffIso=${cutoffIso}, table=${TABLE_NAME}`,
   );
 
-  const orphans = await scanOrphanJobs(TABLE_NAME, cutoffIso);
+  const orphans = await queryOrphanJobs(TABLE_NAME, cutoffIso);
 
   console.log(
-    `[finance-job-janitor] scan complete — ${orphans.length} orphan(s) found`,
+    `[finance-job-janitor] query complete — ${orphans.length} orphan(s) found`,
   );
 
   let marked = 0;
@@ -156,10 +162,18 @@ export async function handler(): Promise<SweepResult> {
 }
 
 // ============================================================================
-// Scan helper — paginates with FilterExpression
+// Query helper — the sparse running-jobs index (GSI15), paginated
 // ============================================================================
 
-async function scanOrphanJobs(
+/**
+ * Partition of GSI15 that holds FINANCE_JOB rows. Mirrors
+ * `GSIKeyBuilder.runningJob('FINANCE_JOB')` in the service; the janitor
+ * bundle is self-contained, so the value is repeated here.
+ */
+const RUNNING_JOBS_INDEX = 'GSI15';
+const RUNNING_JOBS_PK = 'RUNNING_JOB#FINANCE_JOB';
+
+async function queryOrphanJobs(
   tableName: string,
   cutoffIso: string,
 ): Promise<OrphanRow[]> {
@@ -168,14 +182,12 @@ async function scanOrphanJobs(
 
   do {
     const out = await ddbDoc.send(
-      new ScanCommand({
+      new QueryCommand({
         TableName: tableName,
-        FilterExpression:
-          'entityType = :et AND #status = :running AND createdAt < :cutoff',
-        ExpressionAttributeNames: { '#status': 'status' },
+        IndexName: RUNNING_JOBS_INDEX,
+        KeyConditionExpression: 'gsi15pk = :pk AND gsi15sk < :cutoff',
         ExpressionAttributeValues: {
-          ':et': 'FINANCE_JOB',
-          ':running': 'running',
+          ':pk': RUNNING_JOBS_PK,
           ':cutoff': cutoffIso,
         },
         ProjectionExpression:
@@ -220,7 +232,7 @@ async function markOrphanFailed(
         TableName: tableName,
         Key: { tenantId: orphan.tenantId, entityKey: orphan.entityKey },
         UpdateExpression:
-          'SET #status = :failed, failureReason = :reason, completedAt = :now, updatedAt = :now, updatedBy = :janitor',
+          'SET #status = :failed, failureReason = :reason, completedAt = :now, updatedAt = :now, updatedBy = :janitor REMOVE gsi15pk, gsi15sk',
         ConditionExpression: '#status = :running',
         ExpressionAttributeNames: { '#status': 'status' },
         ExpressionAttributeValues: {
@@ -239,6 +251,7 @@ async function markOrphanFailed(
       console.log(
         `[finance-job-janitor] conditional skip — ${orphan.entityKey} no longer in running state (won by the worker)`,
       );
+      await detachFromRunningIndex(tableName, orphan);
       return 'condition-failed';
     }
     console.error(
@@ -246,6 +259,37 @@ async function markOrphanFailed(
       err.message ?? 'unknown',
     );
     return { message: err.message ?? 'unknown error' };
+  }
+}
+
+/**
+ * A row that left `running` without dropping its GSI15 keys (a write that
+ * raced this sweep, or a code path older than the index) would otherwise be
+ * re-read on every sweep. Drop the keys once the status has moved on.
+ */
+async function detachFromRunningIndex(
+  tableName: string,
+  orphan: OrphanRow,
+): Promise<void> {
+  try {
+    await ddbDoc.send(
+      new UpdateCommand({
+        TableName: tableName,
+        Key: { tenantId: orphan.tenantId, entityKey: orphan.entityKey },
+        UpdateExpression: 'REMOVE gsi15pk, gsi15sk',
+        ConditionExpression: '#status <> :running',
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: { ':running': 'running' },
+      }),
+    );
+  } catch (e) {
+    const err = e as { name?: string; message?: string };
+    if (err.name !== 'ConditionalCheckFailedException') {
+      console.error(
+        `[finance-job-janitor] error detaching ${orphan.entityKey} from ${RUNNING_JOBS_INDEX}:`,
+        err.message ?? 'unknown',
+      );
+    }
   }
 }
 

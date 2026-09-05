@@ -23,7 +23,7 @@ import {
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
-import { EntityKeyBuilder } from '../common/entities/base.entity';
+import { EntityKeyBuilder, GSIKeyBuilder } from '../common/entities/base.entity';
 import {
   IemisImportJob,
   IemisImportJobFinding,
@@ -92,10 +92,11 @@ export class IemisImportJobsService {
       client,
       context.tenantId,
       EntityKeyBuilder.iemisImportJob(jobId),
-      'SET #status = :running, startedAt = :now, updatedAt = :now, updatedBy = :by ADD version :one',
+      'SET #status = :running, startedAt = :now, gsi15pk = :runningIndexPk, gsi15sk = :now, updatedAt = :now, updatedBy = :by ADD version :one',
       {
         ':running': 'running',
         ':queued': 'queued',
+        ':runningIndexPk': GSIKeyBuilder.runningJob('IEMIS_IMPORT_JOB'),
         ':now': now,
         ':by': context.userId,
         ':one': 1,
@@ -130,7 +131,7 @@ export class IemisImportJobsService {
       EntityKeyBuilder.iemisImportJob(jobId),
       'SET #status = :status, studentsCreated = :sc, studentsEnrolled = :se, failed = :f, skipped = :sk, ' +
         'findings = :fnd, findingsTruncated = :ft, duplicates = :dup, duplicatesTruncated = :dt, ' +
-        'completedAt = :now, durationMs = :dur, updatedAt = :now, updatedBy = :by ADD version :one',
+        'completedAt = :now, durationMs = :dur, updatedAt = :now, updatedBy = :by ADD version :one REMOVE gsi15pk, gsi15sk',
       {
         ':status': 'succeeded',
         ':sc': result.studentsCreated,
@@ -180,7 +181,7 @@ export class IemisImportJobsService {
       EntityKeyBuilder.iemisImportJob(jobId),
       'SET #status = :status, studentsCreated = :sc, studentsEnrolled = :se, failed = :f, skipped = :sk, ' +
         'findings = :fnd, findingsTruncated = :ft, duplicates = :dup, duplicatesTruncated = :dt, ' +
-        'completedAt = :now, durationMs = :dur, #err = :err, updatedAt = :now, updatedBy = :by ADD version :one',
+        'completedAt = :now, durationMs = :dur, #err = :err, updatedAt = :now, updatedBy = :by ADD version :one REMOVE gsi15pk, gsi15sk',
       {
         ':status': 'failed',
         ':sc': partial.studentsCreated,
