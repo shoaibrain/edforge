@@ -3,6 +3,7 @@ import {
   ConflictException,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ZodValidationException } from 'nestjs-zod';
 import { z } from 'zod';
@@ -33,6 +34,7 @@ function runFilter(exception: unknown) {
 describe('GlobalExceptionFilter', () => {
   beforeEach(() => {
     jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
   });
 
   afterEach(() => {
@@ -200,6 +202,62 @@ describe('GlobalExceptionFilter', () => {
       expect(body.errorCode).toBe('INTERNAL_SERVER_ERROR');
       expect(body.message).toBe('An unexpected error occurred');
       expect(JSON.stringify(body)).not.toContain('dynamodb');
+    });
+  });
+  describe('log severity follows the status class (#468)', () => {
+    const errorSpy = () => Logger.prototype.error as unknown as jest.Mock;
+    const warnSpy = () => Logger.prototype.warn as unknown as jest.Mock;
+
+    it('logs a business-rule 409 at WARN with no stack', () => {
+      runFilter(
+        new ConflictException({
+          code: 'AGREEMENT_ACTIVE',
+          message: 'This agreement already priced an invoice this term.',
+          agreementId: 'agr-1',
+        }),
+      );
+
+      expect(errorSpy()).not.toHaveBeenCalled();
+      expect(warnSpy()).toHaveBeenCalledTimes(1);
+      const [logMessage, context] = warnSpy().mock.calls[0];
+      expect(logMessage).toContain('409 CONFLICT');
+      // Second arg is the logger context, never a stack trace.
+      expect(context).toBe('GlobalExceptionFilter');
+    });
+
+    it('logs a 400 validation failure at WARN', () => {
+      const parsed = z.object({ title: z.string() }).safeParse({});
+      if (parsed.success) throw new Error('fixture must fail validation');
+      runFilter(new ZodValidationException(parsed.error));
+
+      expect(errorSpy()).not.toHaveBeenCalled();
+      expect(warnSpy()).toHaveBeenCalledTimes(1);
+      expect(warnSpy().mock.calls[0][0]).toContain('400 BAD_REQUEST');
+    });
+
+    it('logs a 404 at WARN', () => {
+      runFilter(new NotFoundException('School not found'));
+      expect(errorSpy()).not.toHaveBeenCalled();
+      expect(warnSpy()).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps an unhandled error at ERROR with its original stack', () => {
+      const boom = new Error('dynamodb credentials expired');
+      runFilter(boom);
+
+      expect(warnSpy()).not.toHaveBeenCalled();
+      // Once for the unhandled-exception line, once for the response line.
+      expect(errorSpy()).toHaveBeenCalled();
+      const stacks = errorSpy().mock.calls.map((c: unknown[]) => c[1]);
+      expect(stacks).toContain(boom.stack);
+    });
+
+    it('keeps an explicit 5xx HttpException at ERROR', () => {
+      runFilter(new ServiceUnavailableException('downstream is down'));
+
+      expect(warnSpy()).not.toHaveBeenCalled();
+      expect(errorSpy()).toHaveBeenCalledTimes(1);
+      expect(errorSpy().mock.calls[0][0]).toContain('503 SERVICE_UNAVAILABLE');
     });
   });
 });
