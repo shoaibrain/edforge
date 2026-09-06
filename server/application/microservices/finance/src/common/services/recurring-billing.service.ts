@@ -16,7 +16,7 @@
  */
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { ScanCommand } from '@aws-sdk/lib-dynamodb';
+import { QueryCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { DynamoDBClientService } from './dynamodb-client.service';
 import { FinanceEventsService } from './finance-events.service';
 import { isLambdaRuntime } from '@app/common-utils';
@@ -106,6 +106,65 @@ export class RecurringBillingService implements OnModuleInit, OnModuleDestroy {
    * V2: auto-generate the invoice using InvoicesService.generate()
    */
   /**
+   * Issue #467 — has this school already been billed for `billingPeriod`?
+   *
+   * This was a table `Scan` with a `FilterExpression` and `Limit: 1`.
+   * DynamoDB applies `Limit` BEFORE the filter, so it examined exactly one
+   * arbitrary row of the entire table and then filtered it away: the answer
+   * was "not billed" essentially always, every fee structure was reported
+   * as pending on every run, and an operator acting on that warning could
+   * bill a period twice.
+   *
+   * Now a school-scoped GSI1 query, paged until the first match. Bounded so
+   * a very large school cannot stall the job; on hitting the cap it answers
+   * "billed", because a missing warning is a far safer failure than a false
+   * "not billed" that invites duplicate billing.
+   */
+  private async hasInvoiceForBillingPeriod(
+    client: ReturnType<DynamoDBClientService['getSystemClient']>,
+    tableName: string,
+    tenantId: string,
+    schoolId: string,
+    billingPeriod: string,
+  ): Promise<boolean> {
+    const PAGE_SIZE = 500;
+    const MAX_PAGES = 20;
+    let lastKey: Record<string, any> | undefined;
+
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const result = await client.send(new QueryCommand({
+        TableName: tableName,
+        IndexName: 'GSI1',
+        KeyConditionExpression: 'gsi1pk = :pk AND begins_with(gsi1sk, :sk)',
+        FilterExpression: 'billingPeriod = :period',
+        ExpressionAttributeValues: {
+          ':pk': `TENANT#${tenantId}#SCHOOL#${schoolId}`,
+          ':sk': 'INVOICE',
+          ':period': billingPeriod,
+        },
+        ProjectionExpression: 'invoiceId',
+        Limit: PAGE_SIZE,
+        ExclusiveStartKey: lastKey,
+      }));
+
+      if ((result.Items || []).length > 0) return true;
+      if (!result.LastEvaluatedKey) return false;
+      lastKey = result.LastEvaluatedKey;
+    }
+
+    this.logger.warn({
+      action: 'recurring_billing.period_check_capped',
+      tenantId,
+      schoolId,
+      billingPeriod,
+      message:
+        'Billing-period check hit the page cap; assuming the period is billed ' +
+        'so this run cannot prompt a duplicate billing.',
+    });
+    return true;
+  }
+
+  /**
    * Cost-redesign C3.2 — the unit of work the timer runs, callable by name
    * from the scheduled Lambda entry (finance/src/scheduled.ts). The interval
    * and the startup timer call this, never the method below directly.
@@ -164,19 +223,9 @@ export class RecurringBillingService implements OnModuleInit, OnModuleDestroy {
           const billingPeriod = this.getBillingPeriod(now, fs.frequency);
 
           // Check if any invoices already exist for this fee structure + billing period
-          const invoiceCheck = await client.send(new ScanCommand({
-            TableName: tableName,
-            FilterExpression: 'entityType = :invoiceType AND begins_with(entityKey, :schoolPrefix) AND billingPeriod = :period',
-            ExpressionAttributeValues: {
-              ':invoiceType': 'INVOICE',
-              ':schoolPrefix': `INVOICE#${fs.schoolId}`,
-              ':period': billingPeriod,
-            },
-            ProjectionExpression: 'invoiceId, studentId',
-            Limit: 1,
-          }));
-
-          const hasInvoicesForPeriod = invoiceCheck.Items && invoiceCheck.Items.length > 0;
+          const hasInvoicesForPeriod = await this.hasInvoiceForBillingPeriod(
+            client, tableName, fs.tenantId, fs.schoolId, billingPeriod,
+          );
 
           if (!hasInvoicesForPeriod) {
             pending++;

@@ -10,6 +10,12 @@ module.exports = {
   testPathIgnorePatterns: [
     '/node_modules/',
     '/dist/',
+    // `scripts/build-lambda.sh` emits here, including a linux/x64 `sharp`.
+    // rootDir is server/application, and '/dist/' does not match
+    // '/dist-lambda/', so without this jest resolves the Linux binary on a
+    // developer machine and the pdf-logo-optimizer suite fails with
+    // "sharp: libvips.so.42 not found" — a false failure after any bundle build.
+    '/dist-lambda/',
     '/test/integration/',
     '/test/e2e/',
     '\\.integration\\.spec\\.ts$',

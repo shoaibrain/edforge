@@ -353,3 +353,14 @@ export function decodeCursor(cursor?: string): Record<string, any> | undefined {
     return undefined;
   }
 }
+
+/**
+ * Inverse of `decodeCursor`. Needed by read paths that must resume from a
+ * position of their own choosing rather than from DynamoDB's page boundary
+ * — a filtered list that stops mid-page has to hand back a cursor pointing
+ * at the last row it actually returned, or the truncated remainder of that
+ * page is skipped on the next request (issue #466).
+ */
+export function encodeCursor(key: Record<string, any>): string {
+  return Buffer.from(JSON.stringify(key)).toString('base64');
+}

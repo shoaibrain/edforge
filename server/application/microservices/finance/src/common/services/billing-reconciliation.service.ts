@@ -13,7 +13,7 @@
  */
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { ScanCommand } from '@aws-sdk/lib-dynamodb';
+import { QueryCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { DynamoDBClientService } from './dynamodb-client.service';
 import { isLambdaRuntime } from '@app/common-utils';
 
@@ -75,6 +75,63 @@ export class BillingReconciliationService implements OnModuleInit, OnModuleDestr
    * from the scheduled Lambda entry (finance/src/scheduled.ts). The interval
    * and the startup timer call this, never the method below directly.
    */
+  /**
+   * Issue #467 — does this student have any invoice at this school?
+   *
+   * This was a table `Scan` with a `FilterExpression` and `Limit: 1`.
+   * DynamoDB applies `Limit` BEFORE the filter, so it read one arbitrary
+   * row of the whole table and then filtered it away — the answer was
+   * "no invoices" for essentially every student, and this money-integrity
+   * alarm fired constantly on students who were correctly billed.
+   *
+   * Now a student-scoped GSI2 query. GSI2 spans a student's invoices across
+   * schools, so the school stays a filter; the partition is small (a
+   * student's own invoices), so this is cheap and pages rarely.
+   */
+  private async studentHasInvoices(
+    client: ReturnType<DynamoDBClientService['getSystemClient']>,
+    tableName: string,
+    tenantId: string,
+    studentId: string,
+    schoolId: string,
+  ): Promise<boolean> {
+    const PAGE_SIZE = 100;
+    const MAX_PAGES = 25;
+    let lastKey: Record<string, any> | undefined;
+
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const result = await client.send(new QueryCommand({
+        TableName: tableName,
+        IndexName: 'GSI2',
+        KeyConditionExpression: 'gsi2pk = :pk AND begins_with(gsi2sk, :sk)',
+        FilterExpression: 'begins_with(entityKey, :schoolPrefix)',
+        ExpressionAttributeValues: {
+          ':pk': `TENANT#${tenantId}#STUDENT#${studentId}`,
+          ':sk': 'INVOICE',
+          ':schoolPrefix': `INVOICE#${schoolId}`,
+        },
+        ProjectionExpression: 'invoiceId',
+        Limit: PAGE_SIZE,
+        ExclusiveStartKey: lastKey,
+      }));
+
+      if ((result.Items || []).length > 0) return true;
+      if (!result.LastEvaluatedKey) return false;
+      lastKey = result.LastEvaluatedKey;
+    }
+
+    this.logger.warn({
+      action: 'billing_reconciliation.student_check_capped',
+      tenantId,
+      studentId,
+      schoolId,
+      message:
+        'Invoice existence check hit the page cap; treating the student as ' +
+        'billed so this run cannot raise a false unbilled alert.',
+    });
+    return true;
+  }
+
   runOnce(): ReturnType<BillingReconciliationService['reconcile']> {
     return this.reconcile();
   }
@@ -120,19 +177,11 @@ export class BillingReconciliationService implements OnModuleInit, OnModuleDestr
           if (scanned >= MAX_ITEMS) break;
 
           // Check if this student has any invoices in this school
-          const invoiceResult = await client.send(new ScanCommand({
-            TableName: tableName,
-            FilterExpression: 'entityType = :invoiceType AND studentId = :studentId AND begins_with(entityKey, :schoolPrefix)',
-            ExpressionAttributeValues: {
-              ':invoiceType': 'INVOICE',
-              ':studentId': account.studentId,
-              ':schoolPrefix': `INVOICE#${account.schoolId}`,
-            },
-            ProjectionExpression: 'invoiceId',
-            Limit: 1,
-          }));
+          const studentHasInvoices = await this.studentHasInvoices(
+            client, tableName, account.tenantId, account.studentId, account.schoolId,
+          );
 
-          if (!invoiceResult.Items || invoiceResult.Items.length === 0) {
+          if (!studentHasInvoices) {
             unbilled++;
             this.logger.warn({
               action: 'billing_reconciliation.unbilled_student',
