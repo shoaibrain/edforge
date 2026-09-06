@@ -1579,6 +1579,12 @@ export class InvoicesService {
       billingSource?: 'agreement' | 'standard';
       limit?: number;
       cursor?: string;
+      /**
+       * #348 — invoice-number lookup. Prefix match on GSI3
+       * (`gsi3sk = INVNUM#{number}`), so a pasted number or the leading
+       * part of one both work.
+       */
+      invoiceNumber?: string;
     } = {},
   ): Promise<{ items: Invoice[]; lastEvaluatedKey?: string; hasMore: boolean }> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
@@ -1613,6 +1619,34 @@ export class InvoicesService {
         decodeCursor(options.cursor),
       );
 
+      return {
+        items: result.items.map(e => invoiceEntityToDto(e, { currentSchoolName })),
+        lastEvaluatedKey: result.lastEvaluatedKey,
+        hasMore: result.hasMore,
+      };
+    }
+
+    // #348 — invoice-number lookup goes to GSI3, the index built for exactly
+    // this and until now never read. A prefix query on the sort key, so no
+    // FilterExpression and none of the page starvation this endpoint used to
+    // have. The search box previously filtered only the rows the client had
+    // already loaded, so a real invoice number reported "no results" whenever
+    // it was not on the loaded page.
+    const invoiceNumber = options.invoiceNumber?.trim();
+    if (invoiceNumber) {
+      const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+        client,
+        'GSI3',
+        GSIKeyBuilder.invoiceLookup(context.tenantId, schoolId),
+        GSIKeyBuilder.invoiceNumber(invoiceNumber),
+        'begins_with',
+        undefined,
+        undefined,
+        undefined,
+        options.limit || 50,
+        false,
+        decodeCursor(options.cursor),
+      );
       return {
         items: result.items.map(e => invoiceEntityToDto(e, { currentSchoolName })),
         lastEvaluatedKey: result.lastEvaluatedKey,
@@ -1753,6 +1787,8 @@ export class InvoicesService {
       academicYear?: string;
       /** FB-5.5 — see pushBillingSourceFilter. */
       billingSource?: 'agreement' | 'standard';
+      /** #348 — invoice-number prefix, applied within the student's own rows. */
+      invoiceNumber?: string;
       limit?: number;
       cursor?: string;
     } = {},
@@ -1788,6 +1824,12 @@ export class InvoicesService {
       }
       if (options.billingSource) {
         this.pushBillingSourceFilter(options.billingSource, filterParts);
+      }
+      // #348 — a parent searching by invoice number stays inside their own
+      // students' partitions; the number narrows, it never widens scope.
+      if (options.invoiceNumber?.trim()) {
+        filterParts.push('begins_with(invoiceNumber, :invoiceNumber)');
+        filterValues[':invoiceNumber'] = options.invoiceNumber.trim();
       }
 
       const result = await this.queryInvoicesFilled(

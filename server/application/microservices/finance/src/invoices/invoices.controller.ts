@@ -114,6 +114,8 @@ export class InvoicesController {
     @Query('gradeLevel') gradeLevel: string,
     // EPIC-FB FB-5.5 — 'agreement' | 'standard'; absent = today's behavior.
     @Query('billingSource') billingSourceRaw: string,
+    // #348 — invoice-number lookup (prefix). Routed to GSI3, not a filter.
+    @Query('invoiceNumber') invoiceNumber: string,
     @Query('limit') limit: string,
     @Query('cursor') cursor: string,
     @TenantCredentials() tenant: any,
@@ -140,7 +142,7 @@ export class InvoicesController {
         if (scopedStudentId) {
           await this.identityClient.enforceStudentOwnership(scopedStudentId, schoolId, context);
           return this.invoicesService.listForStudents(schoolId, [scopedStudentId], context, {
-            status, academicYear, billingSource,
+            status, academicYear, billingSource, invoiceNumber,
             limit: limit ? parseInt(limit, 10) : 50,
             cursor,
           });
@@ -153,7 +155,7 @@ export class InvoicesController {
         }
         // Query per-student via GSI2 and merge results
         return this.invoicesService.listForStudents(schoolId, linkedStudentIds, context, {
-          status, academicYear, billingSource,
+          status, academicYear, billingSource, invoiceNumber,
           limit: limit ? parseInt(limit, 10) : 50,
           cursor,
         });
