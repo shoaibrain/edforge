@@ -29,6 +29,41 @@ operator-specific deployment evidence. The entries below preserve durable public
 status without raw log links, account IDs, ARNs, tenant UUIDs, operator emails,
 JWT claims, or environment-specific hostnames.
 
+### 2026-09-06 — Filtered invoice reads and 4xx log severity — Green
+
+- **Scope:** PRs #470 (issues #466, #467) and #471 (issue #468), deployed
+  together as an integration branch so production matches what `main` will
+  hold once both merge. Filtered invoice lists read forward until the
+  caller's limit is filled instead of returning whatever survived a single
+  page; the cursor is rebuilt from the last row returned; the parent/student
+  path gains a per-student cursor map; two scheduled existence checks move
+  from `Scan` + filter + `Limit: 1` to scoped index queries; business-rule
+  4xx now log at WARN instead of ERROR.
+- **Ladder:** 238 suites / 3,687 tests green → three `nest build`s →
+  `typecheck:cdk` clean → lint 0 errors → route-drift 4/4 and generated
+  OpenAPI current → all three Lambda bundle guards → `cdk diff`: six
+  function code assets, the commit stamp, one output, zero DynamoDB and
+  zero IAM lines → `scripts/deploy.sh tenant-template-stack-basic prod
+  --exclusively`.
+- **Deploy:** stack update 37 s (102 s total); all three API functions
+  Active / Successful on nodejs22.x; authorizer 401 unauthenticated; no new
+  errors in the finance log group.
+- **Validation:** smoke with a TenantAdmin token on the dev tenant, all
+  assertions green. The agreement-source filter returned **4 of 4**
+  agreement-priced invoices where it previously returned 2, and every row
+  genuinely carried an agreement. The standard-source filter still returns
+  rows and still excludes agreement rows. Paging the filter one row at a
+  time walked all four with no repeats and terminated correctly. The
+  agreement guard still answers 409 carrying its domain code and payload,
+  and that request logged at **WARN with no ERROR line** in the same
+  window. Grade-filtered and unfiltered lists unchanged. The 409 probe
+  created nothing.
+- **Not validated here:** the two scheduled existence checks are only
+  reachable from the scheduled function, so they rest on unit coverage that
+  fails against the previous implementation; confirm from the logs after
+  the next recurring-billing run.
+- **Follow-up:** merge #470 and #471 together so `main` matches production.
+
 ### 2026-09-06 — Exception filter forwards domain error codes and payloads — Green
 
 - **Scope:** PR #464 (`70dd1e6`). `GlobalExceptionFilter` now emits the
