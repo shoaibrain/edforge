@@ -110,11 +110,16 @@ describe('InvoicesService.bulkPreview — billingSource (FB-3.7)', () => {
 
     const result = await service.bulkPreview(SCHOOL_ID, previewDto, ctx);
 
+    // Classification is the contract here; #465 widened each row with what
+    // the agreement replaces and for how much, asserted separately below.
     expect(result.students).toEqual([
-      { studentId: STUDENT_A, billingSource: 'agreement' },
-      { studentId: STUDENT_B, billingSource: 'mixed' },
-      { studentId: STUDENT_C, billingSource: 'standard' },
+      expect.objectContaining({ studentId: STUDENT_A, billingSource: 'agreement' }),
+      expect.objectContaining({ studentId: STUDENT_B, billingSource: 'mixed' }),
+      expect.objectContaining({ studentId: STUDENT_C, billingSource: 'standard' }),
     ]);
+    // A student with no agreement carries no agreement fields at all — the
+    // pre-FB row shape.
+    expect(result.students?.[2]).toEqual({ studentId: STUDENT_C, billingSource: 'standard' });
     // Pre-existing counters untouched by the addition.
     expect(result.studentCount).toBe(3);
     expect(result.eligibleCount).toBe(3);

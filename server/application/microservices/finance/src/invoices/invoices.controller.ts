@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { Readable } from 'stream';
-import { InvoicesService } from './invoices.service';
+import { InvoicesService, PreviewBillingSource } from './invoices.service';
 import { JwtAuthGuard } from '@app/auth/jwt-auth.guard';
 import { TenantCredentials, RequirePermission } from '@app/auth';
 import { PermissionGuard } from '../common/guards/permission.guard';
@@ -222,11 +222,22 @@ export class InvoicesController {
     studentsWithBalance?: number;
     studentsNotBilledThisPeriod?: number;
     studentsNewAdmission?: number;
+    // #465 — students whose agreement already priced this term. Generation
+    // rejects each with 409 AGREEMENT_ACTIVE, so they are excluded from
+    // eligibleCount. Counted separately from catalog duplicates because the
+    // reasons differ; a student who is both is counted once for eligibility.
+    agreementBlockedCount?: number;
     // EPIC-FB FB-3.7 — per-student agreement coverage of the requested
     // feeTypes ('agreement' = all covered, 'mixed' = some, 'standard' =
     // none / no agreement). Optional + best-effort: absent when
     // BILLING_AGREEMENTS_ENABLED='false' or resolution failed.
-    students?: Array<{ studentId: string; billingSource: 'standard' | 'agreement' | 'mixed' }>;
+    //
+    // #465 — each row also carries what the agreement replaces and for how
+    // much, so the caller totals a batch as
+    //   catalog(requested structures NOT in suppressedFeeStructureIds)
+    //     + agreementAmount
+    // instead of pricing agreement-covered students at catalog rates.
+    students?: PreviewBillingSource[];
   }> {
     const context = buildRequestContext(tenant, req, schoolId);
     return this.invoicesService.bulkPreview(schoolId, {
