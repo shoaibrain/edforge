@@ -29,6 +29,35 @@ operator-specific deployment evidence. The entries below preserve durable public
 status without raw log links, account IDs, ARNs, tenant UUIDs, operator emails,
 JWT claims, or environment-specific hostnames.
 
+### 2026-09-06 — Exception filter forwards domain error codes and payloads — Green
+
+- **Scope:** PR #464 (`70dd1e6`). `GlobalExceptionFilter` now emits the
+  service-thrown `code` and forwards the non-envelope payload keys
+  (`conflicts[]`, `agreementId`, `existingInvoiceId`, ...) that finance throws
+  at 65 `ConflictException({ code, ... })` sites. Until now every such body
+  reached clients as `{ statusCode, errorCode, message }` only, which left the
+  family-billing UI (edforge-saas-frontend #331) unable to act on any 409.
+  Pre-existing since the filter was written; not a Lambda regression.
+- **Ladder:** local gates (three `nest build`s, 367 jest tests incl. a new
+  10-case filter spec, `typecheck:cdk`, lint 0 errors) → PR CI green (8/8) →
+  `cdk diff tenant-template-stack-basic --exclusively`: six function code
+  assets, the per-deploy commit-id mapping, one output; zero DynamoDB, zero IAM
+  → `scripts/deploy.sh tenant-template-stack-basic prod --exclusively`.
+- **Deploy:** stack update 36 s (106 s total); all three API functions
+  `Active` / `Successful` on `nodejs22.x`; authorizer probe 401; no function
+  errors after the update.
+- **Validation:** smoke with a TenantAdmin token on the dev tenant against the
+  July drill's active agreement — all 14 assertions green: single generate
+  under the active agreement → `409` with `code: AGREEMENT_ACTIVE`,
+  `agreementId`, `existingInvoiceId`, `existingInvoiceNumber`,
+  `coveredFeeTypes[]`; draft-create over it → `409` with
+  `code: AGREEMENT_OVERLAP`, `studentId`, `conflictingAgreementId`;
+  re-activate → `409` with `code: AGREEMENT_INVALID_TRANSITION`, `from`, `to`.
+  `errorCode`, `timestamp`, `requestId`, `path` unchanged. Both probes hit
+  read-time guards; no invoice or agreement was created (verified).
+- **Follow-up:** edforge-saas-frontend #331 rebase + fixture correction to the
+  wire envelope, then QA gate #335.
+
 ### 2026-09-05 — Cost redesign Sprint 7: tenant lifecycle functions replace the CodeBuild script jobs — Green
 
 - **Scope:** PR #455 (C7.1–C7.3, D7.1–D7.7); design and the executed record
