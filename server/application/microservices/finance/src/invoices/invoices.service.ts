@@ -16,7 +16,7 @@ import {
   InvoiceLineItemData,
   createInvoiceEntity,
 } from '../common/entities/invoice.entity';
-import { EntityKeyBuilder, GSIKeyBuilder, RequestContext, decodeCursor } from '../common/entities/base.entity';
+import { EntityKeyBuilder, GSIKeyBuilder, RequestContext, decodeCursor, encodeCursor } from '../common/entities/base.entity';
 import { invoiceEntityToDto, todayIsoDate } from '../common/mappers/invoice.mapper';
 import { FinanceErrors } from '../common/errors/finance-errors';
 import {
@@ -121,6 +121,14 @@ const AGREEMENT_GUARD_DEAD_STATUSES = new Set(['cancelled', 'written_off']);
 // manual review.
 const GSI2_INVOICE_SCAN_PAGE_SIZE = 100;
 const GSI2_INVOICE_SCAN_MAX_PAGES = 25;
+
+// Issue #466 — a filtered list read must not starve. DynamoDB applies
+// `Limit` BEFORE the FilterExpression, so a single page can return zero
+// matches while matching rows sit deeper in the partition. Filtered list
+// paths therefore read forward in pages until the caller's limit is
+// filled, the partition is exhausted, or this page cap is reached.
+const LIST_FILTER_PAGE_SIZE = 200;
+const LIST_FILTER_MAX_PAGES = 25;
 
 /**
  * EPIC-FB FB-5.2 — per-request/per-job memo for the sibling discount
@@ -475,6 +483,96 @@ export class InvoicesService {
         coveredFeeTypes,
       });
     }
+  }
+
+  /**
+   * A cursor that resumes immediately AFTER `item` in `indexName` order.
+   *
+   * DynamoDB's own `LastEvaluatedKey` is page-granular. A filtered read
+   * that fills its limit mid-page must not hand that back: the rows it
+   * truncated sit between the last returned row and the page boundary and
+   * would be skipped. Every GSI on this table projects ALL, so the four
+   * key attributes needed for an `ExclusiveStartKey` are on the item.
+   */
+  private cursorAfterItem(indexName: string, item: InvoiceEntity): string {
+    const slot = indexName.toLowerCase().replace(/^gsi/, '');
+    const row = item as unknown as Record<string, unknown>;
+    return encodeCursor({
+      tenantId: row.tenantId,
+      entityKey: row.entityKey,
+      [`gsi${slot}pk`]: row[`gsi${slot}pk`],
+      [`gsi${slot}sk`]: row[`gsi${slot}sk`],
+    });
+  }
+
+  /**
+   * Issue #466 — one page of invoices that actually contains `limit`
+   * matches, rather than `limit` rows read before filtering.
+   *
+   * Unfiltered reads are already exact (without a FilterExpression
+   * DynamoDB's `Limit` is the number of rows RETURNED), so that path stays
+   * a single query and is byte-identical to the previous behaviour.
+   */
+  private async queryInvoicesFilled(
+    client: Awaited<ReturnType<DynamoDBClientService['getClient']>>,
+    indexName: string,
+    pkValue: string,
+    filterExpression: string | undefined,
+    filterValues: Record<string, any> | undefined,
+    filterNames: Record<string, string> | undefined,
+    limit: number,
+    cursor: string | undefined,
+  ): Promise<{ items: InvoiceEntity[]; lastEvaluatedKey?: string; hasMore: boolean }> {
+    if (!filterExpression) {
+      const single = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+        client, indexName, pkValue, 'INVOICE', 'begins_with',
+        undefined, undefined, undefined, limit, false, decodeCursor(cursor),
+      );
+      return {
+        items: single.items,
+        lastEvaluatedKey: single.lastEvaluatedKey,
+        hasMore: single.hasMore,
+      };
+    }
+
+    const matches: InvoiceEntity[] = [];
+    let exclusiveStartKey = decodeCursor(cursor);
+    const pageSize = Math.max(limit, LIST_FILTER_PAGE_SIZE);
+
+    for (let page = 0; page < LIST_FILTER_MAX_PAGES; page++) {
+      const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+        client, indexName, pkValue, 'INVOICE', 'begins_with',
+        filterExpression, filterValues, filterNames,
+        pageSize, false, exclusiveStartKey,
+      );
+      matches.push(...result.items);
+
+      if (matches.length >= limit) {
+        const items = matches.slice(0, limit);
+        const truncated = matches.length > limit;
+        if (!truncated && !result.lastEvaluatedKey) {
+          return { items, lastEvaluatedKey: undefined, hasMore: false };
+        }
+        return {
+          items,
+          lastEvaluatedKey: this.cursorAfterItem(indexName, items[items.length - 1]),
+          hasMore: true,
+        };
+      }
+
+      if (!result.lastEvaluatedKey) {
+        return { items: matches, lastEvaluatedKey: undefined, hasMore: false };
+      }
+      exclusiveStartKey = decodeCursor(result.lastEvaluatedKey);
+    }
+
+    // Page cap hit with the limit unfilled. Say so and hand back a
+    // resumable cursor rather than implying the result set is complete.
+    return {
+      items: matches,
+      lastEvaluatedKey: exclusiveStartKey ? encodeCursor(exclusiveStartKey) : undefined,
+      hasMore: true,
+    };
   }
 
   /**
@@ -1473,18 +1571,15 @@ export class InvoicesService {
       this.pushBillingSourceFilter(options.billingSource, filterParts);
     }
 
-    const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+    const result = await this.queryInvoicesFilled(
       client,
       'GSI1',
       gsi1pk,
-      'INVOICE',
-      'begins_with',
       filterParts.length > 0 ? filterParts.join(' AND ') : undefined,
       Object.keys(filterValues).length > 0 ? filterValues : undefined,
       Object.keys(filterNames).length > 0 ? filterNames : undefined,
       options.limit || 50,
-      false,
-      decodeCursor(options.cursor),
+      options.cursor,
     );
 
     return {
@@ -1556,18 +1651,15 @@ export class InvoicesService {
       this.pushBillingSourceFilter(options.billingSource, filterParts);
     }
 
-    const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+    const result = await this.queryInvoicesFilled(
       client,
       'GSI14',
       gsi14pk as string,
-      'INVOICE',
-      'begins_with',
       filterParts.length > 0 ? filterParts.join(' AND ') : undefined,
       Object.keys(filterValues).length > 0 ? filterValues : undefined,
       Object.keys(filterNames).length > 0 ? filterNames : undefined,
       options.limit || 50,
-      false, // newest issuedDate first
-      decodeCursor(options.cursor),
+      options.cursor,
     );
 
     this.logger.log(
@@ -1600,7 +1692,18 @@ export class InvoicesService {
   ): Promise<{ items: Invoice[]; lastEvaluatedKey?: string; hasMore: boolean }> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const currentSchoolName = await this.resolveCurrentSchoolName(schoolId, context);
-    const allItems: Invoice[] = [];
+    const limit = options.limit || 50;
+
+    // Issue #466 — one cursor cannot address N student partitions. The
+    // previous implementation applied the SAME cursor to every student's
+    // query (a DynamoDB ExclusiveStartKey is partition-specific, so that
+    // is never correct) and then discarded it, returning `hasMore` with no
+    // way to act on it: a parent could not page past the first page at all.
+    // The cursor is now a per-student map.
+    const incoming = this.decodeStudentCursors(options.cursor);
+    const fetched: Array<{ studentId: string; entity: InvoiceEntity }> = [];
+    const nextCursors: Record<string, string> = { ...incoming };
+    let anyPartitionHasMore = false;
 
     for (const studentId of studentIds) {
       const gsi2pk = GSIKeyBuilder.studentScope(context.tenantId, studentId);
@@ -1620,32 +1723,71 @@ export class InvoicesService {
         this.pushBillingSourceFilter(options.billingSource, filterParts);
       }
 
-      const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
+      const result = await this.queryInvoicesFilled(
         client,
         'GSI2',
         gsi2pk,
-        'INVOICE',
-        'begins_with',
         filterParts.length > 0 ? filterParts.join(' AND ') : undefined,
         Object.keys(filterValues).length > 0 ? filterValues : undefined,
         Object.keys(filterNames).length > 0 ? filterNames : undefined,
-        options.limit || 50,
-        false,
-        decodeCursor(options.cursor),
+        limit,
+        incoming[studentId],
       );
 
-      allItems.push(...result.items.map(e => invoiceEntityToDto(e, { currentSchoolName })));
+      for (const entity of result.items) fetched.push({ studentId, entity });
+      if (result.hasMore) anyPartitionHasMore = true;
     }
 
-    // Sort by createdAt descending and apply limit
-    allItems.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    const limit = options.limit || 50;
-    const items = allItems.slice(0, limit);
+    // Display order stays createdAt-descending, as before.
+    fetched.sort((a, b) => b.entity.createdAt.localeCompare(a.entity.createdAt));
+    const page = fetched.slice(0, limit);
+
+    // Advance each student only as far as the OLDEST row of theirs that
+    // made this page, measured in index order (gsi2sk), not in createdAt
+    // order — the two can disagree, and the cursor has to be expressed in
+    // the order the partition is actually read. Students with nothing on
+    // this page keep their incoming position so nothing is skipped.
+    const oldestIncluded = new Map<string, InvoiceEntity>();
+    for (const { studentId, entity } of page) {
+      const sk = (entity as unknown as Record<string, string>).gsi2sk;
+      const current = oldestIncluded.get(studentId);
+      const currentSk = current
+        ? (current as unknown as Record<string, string>).gsi2sk
+        : undefined;
+      if (!current || (sk && currentSk && sk < currentSk)) {
+        oldestIncluded.set(studentId, entity);
+      }
+    }
+    for (const [studentId, entity] of oldestIncluded) {
+      nextCursors[studentId] = this.cursorAfterItem('GSI2', entity);
+    }
+
+    const truncated = fetched.length > page.length;
+    const hasMore = truncated || anyPartitionHasMore;
 
     return {
-      items,
-      hasMore: allItems.length > limit,
+      items: page.map(p => invoiceEntityToDto(p.entity, { currentSchoolName })),
+      lastEvaluatedKey: hasMore ? this.encodeStudentCursors(nextCursors) : undefined,
+      hasMore,
     };
+  }
+
+  /**
+   * Per-student cursor map for `listForStudents`. Opaque to callers; the
+   * shape is versioned so a future change can be detected rather than
+   * silently misread. An unrecognised or malformed cursor starts from the
+   * beginning, which is the same fail-safe `decodeCursor` uses.
+   */
+  private encodeStudentCursors(cursors: Record<string, string>): string {
+    return encodeCursor({ v: 2, s: cursors });
+  }
+
+  private decodeStudentCursors(cursor?: string): Record<string, string> {
+    const decoded = decodeCursor(cursor);
+    if (!decoded || decoded.v !== 2 || typeof decoded.s !== 'object' || decoded.s === null) {
+      return {};
+    }
+    return decoded.s as Record<string, string>;
   }
 
   /**
