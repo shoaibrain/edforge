@@ -68,7 +68,7 @@ function buildController(overrides: {
 async function callList(
   controller: InvoicesController,
   t: any,
-  opts: { studentId?: string; gradeLevel?: string } = {},
+  opts: { studentId?: string; gradeLevel?: string; invoiceNumber?: string } = {},
 ) {
   return (controller as any).list(
     SCHOOL_ID,
@@ -77,6 +77,7 @@ async function callList(
     undefined, // academicYear
     opts.gradeLevel,
     undefined, // billingSource
+    opts.invoiceNumber, // #348 invoice-number lookup
     undefined, // limit
     undefined, // cursor
     t,
@@ -140,5 +141,21 @@ describe('InvoicesController.list — parent scoping (reverify leak fix)', () =>
 
     expect(identityClient.getUserRole).not.toHaveBeenCalled();
     expect(invoicesService.listBySchoolAndGrade).toHaveBeenCalledTimes(1);
+  });
+  it('#348 — a Parent searching by invoice number stays scoped to their own children', async () => {
+    const { controller, invoicesService } = buildController();
+
+    await callList(controller, tenant('TenantUser'), {
+      invoiceNumber: 'INV-420-2609-0151',
+    });
+
+    // The number narrows within the linked students; it must never reach the
+    // school-wide branches.
+    expect(invoicesService.listForStudents).toHaveBeenCalledTimes(1);
+    expect(invoicesService.listBySchoolAndGrade).not.toHaveBeenCalled();
+    expect(invoicesService.list).not.toHaveBeenCalled();
+    expect(invoicesService.listForStudents.mock.calls[0][3]).toMatchObject({
+      invoiceNumber: 'INV-420-2609-0151',
+    });
   });
 });
