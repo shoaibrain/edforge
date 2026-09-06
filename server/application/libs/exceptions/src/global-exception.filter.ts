@@ -147,13 +147,29 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     // Log the HTTP error response
     // Format: [METHOD] /path - STATUS CODE: message
-    // Pass the original stack trace as the second parameter
     const logMessage = `[${request.method}] ${request.url} - ${status} ${errorCode}: ${message}`;
-    this.logger.error(
-      logMessage,
-      originalStack,
-      GlobalExceptionFilter.name
-    );
+
+    // Severity follows the status class (issue #468). A 4xx is a request
+    // the service refused on purpose — an operator hitting a guard such as
+    // "this agreement already priced an invoice this term" is a designed
+    // product outcome with its own dialog, not a failure. Logging those at
+    // ERROR with a stack made every error dashboard and alarm on this log
+    // group a measure of operator behaviour, and buried real 5xx among
+    // them. Only 5xx and unhandled exceptions keep ERROR and the stack;
+    // the 4xx stack is the framework's throw site and carries nothing the
+    // message does not already say.
+    if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+      this.logger.error(
+        logMessage,
+        originalStack,
+        GlobalExceptionFilter.name
+      );
+    } else {
+      this.logger.warn(
+        logMessage,
+        GlobalExceptionFilter.name
+      );
+    }
 
     response.status(status).json(errorResponse);
   }
