@@ -159,3 +159,56 @@ describe('InvoicesController.list — parent scoping (reverify leak fix)', () =>
     });
   });
 });
+
+/**
+ * #475 — the staff half of the same lookup. PR #473 wired invoiceNumber into
+ * the two parent branches and left both staff branches passing their options
+ * object without it, so a Principal's search returned the unfiltered list
+ * while a Parent's identical request was filtered correctly. The service
+ * supported it the whole time; only the controller dropped it. These assert
+ * the parameter reaches the service, which is the layer the existing
+ * service-level spec already covers.
+ */
+describe('InvoicesController.list — staff invoice-number lookup (#475)', () => {
+  it('staff role forwards invoiceNumber to list() (GSI3 lookup)', async () => {
+    const { controller, invoicesService } = buildController({ schoolRole: 'Accountant' });
+
+    await callList(controller, tenant('TenantUser'), {
+      invoiceNumber: 'INV-420-2605-0192',
+    });
+
+    expect(invoicesService.list).toHaveBeenCalledTimes(1);
+    expect(invoicesService.list.mock.calls[0][2]).toMatchObject({
+      invoiceNumber: 'INV-420-2605-0192',
+    });
+    expect(invoicesService.listForStudents).not.toHaveBeenCalled();
+  });
+
+  it('staff role + gradeLevel forwards invoiceNumber to listBySchoolAndGrade()', async () => {
+    const { controller, invoicesService } = buildController({ schoolRole: 'Principal' });
+
+    await callList(controller, tenant('TenantUser'), {
+      gradeLevel: '5',
+      invoiceNumber: 'INV-420-2605-0192',
+    });
+
+    expect(invoicesService.listBySchoolAndGrade).toHaveBeenCalledTimes(1);
+    expect(invoicesService.listBySchoolAndGrade.mock.calls[0][3]).toMatchObject({
+      invoiceNumber: 'INV-420-2605-0192',
+    });
+    expect(invoicesService.list).not.toHaveBeenCalled();
+  });
+
+  it('TenantAdmin forwards invoiceNumber to list()', async () => {
+    const { controller, invoicesService } = buildController();
+
+    await callList(controller, tenant('TenantAdmin'), {
+      invoiceNumber: 'INV-420-2605-0192',
+    });
+
+    expect(invoicesService.list).toHaveBeenCalledTimes(1);
+    expect(invoicesService.list.mock.calls[0][2]).toMatchObject({
+      invoiceNumber: 'INV-420-2605-0192',
+    });
+  });
+});

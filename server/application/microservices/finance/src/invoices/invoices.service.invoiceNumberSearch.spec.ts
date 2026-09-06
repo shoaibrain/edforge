@@ -100,3 +100,61 @@ describe('InvoicesService.listForStudents — invoice-number lookup (#348)', () 
     expect(lastCall(dynamoDBClient)[5]).toBeUndefined();
   });
 });
+
+/**
+ * #475 — the staff branches. `list()` is only reachable without a gradeLevel;
+ * a staff caller who supplies one lands on the GSI14 branch instead, and that
+ * branch has to narrow by number too or the grade scope silently wins.
+ */
+describe('InvoicesService.listBySchoolAndGrade — invoice-number lookup (#475)', () => {
+  it('narrows within the grade partition instead of routing to GSI3', async () => {
+    const { service, dynamoDBClient } = buildService();
+    await service.listBySchoolAndGrade(SCHOOL_ID, '5', ctx, {
+      invoiceNumber: 'INV-420-2605-0192',
+    });
+
+    const args = lastCall(dynamoDBClient);
+    // Going to GSI3 here would drop the grade the caller asked for.
+    expect(args[1]).toBe('GSI14');
+    expect(args[5]).toContain('begins_with(invoiceNumber, :invoiceNumber)');
+    expect(args[6][':invoiceNumber']).toBe('INV-420-2605-0192');
+  });
+
+  it('composes with the other grade-scoped filters', async () => {
+    const { service, dynamoDBClient } = buildService();
+    await service.listBySchoolAndGrade(SCHOOL_ID, '5', ctx, {
+      academicYear: '2083-academic-year',
+      invoiceNumber: 'INV-420',
+    });
+
+    const filter = lastCall(dynamoDBClient)[5];
+    expect(filter).toContain('academicYear = :academicYear');
+    expect(filter).toContain('begins_with(invoiceNumber, :invoiceNumber)');
+  });
+
+  it('adds no filter when no number is supplied', async () => {
+    const { service, dynamoDBClient } = buildService();
+    await service.listBySchoolAndGrade(SCHOOL_ID, '5', ctx, {});
+    expect(lastCall(dynamoDBClient)[5]).toBeUndefined();
+  });
+});
+
+describe('InvoicesService.list — studentId + invoiceNumber is rejected (#475)', () => {
+  it('refuses the combination rather than returning the unfiltered student rows', async () => {
+    const { service } = buildService();
+    await expect(
+      service.list(SCHOOL_ID, ctx, {
+        studentId: 'child-a',
+        invoiceNumber: 'INV-420-2605-0192',
+      }),
+    ).rejects.toMatchObject({
+      response: { code: 'INVALID_FILTER_COMBINATION' },
+    });
+  });
+
+  it('still allows studentId on its own', async () => {
+    const { service, dynamoDBClient } = buildService();
+    await service.list(SCHOOL_ID, ctx, { studentId: 'child-a' });
+    expect(lastCall(dynamoDBClient)[1]).toBe('GSI2');
+  });
+});

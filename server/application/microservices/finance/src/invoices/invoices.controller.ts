@@ -174,14 +174,14 @@ export class InvoicesController {
     // studentId filter (no current caller passes both).
     if (gradeLevel && gradeLevel.trim()) {
       return this.invoicesService.listBySchoolAndGrade(schoolId, gradeLevel, context, {
-        status, academicYear, billingSource,
+        status, academicYear, billingSource, invoiceNumber,
         limit: limit ? parseInt(limit, 10) : 50,
         cursor,
       });
     }
 
     return this.invoicesService.list(schoolId, context, {
-      status, studentId: scopedStudentId, academicYear, billingSource,
+      status, studentId: scopedStudentId, academicYear, billingSource, invoiceNumber,
       limit: limit ? parseInt(limit, 10) : 50,
       cursor,
     });

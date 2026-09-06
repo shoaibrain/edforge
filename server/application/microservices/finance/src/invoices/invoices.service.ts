@@ -1604,6 +1604,17 @@ export class InvoicesService {
             + 'query without studentId or use the student-scoped invoice views.',
         });
       }
+      // #475 — same reasoning for the invoice-number lookup. The number
+      // routes to GSI3 below, which this branch never reaches, so accepting
+      // both would return the student's unfiltered rows and call it a search.
+      if (options.invoiceNumber?.trim()) {
+        throw new BadRequestException({
+          code: FinanceErrors.INVALID_FILTER_COMBINATION,
+          message:
+            'invoiceNumber cannot be combined with studentId on this listing; '
+            + 'query by invoiceNumber alone, or list the student and filter client-side.',
+        });
+      }
       const gsi2pk = GSIKeyBuilder.studentScope(context.tenantId, options.studentId);
       const result = await this.dynamoDBClient.queryGSI<InvoiceEntity>(
         client,
@@ -1718,6 +1729,8 @@ export class InvoicesService {
       academicYear?: string;
       /** FB-5.5 — see pushBillingSourceFilter. */
       billingSource?: 'agreement' | 'standard';
+      /** #348 — invoice-number prefix, narrowing within the grade partition. */
+      invoiceNumber?: string;
       limit?: number;
       cursor?: string;
     } = {},
@@ -1750,6 +1763,13 @@ export class InvoicesService {
     }
     if (options.billingSource) {
       this.pushBillingSourceFilter(options.billingSource, filterParts);
+    }
+    // #348 — the grade partition already scopes the read, so the number
+    // narrows as a filter here rather than routing to GSI3. Going to GSI3
+    // instead would drop the grade scope the caller asked for.
+    if (options.invoiceNumber?.trim()) {
+      filterParts.push('begins_with(invoiceNumber, :invoiceNumber)');
+      filterValues[':invoiceNumber'] = options.invoiceNumber.trim();
     }
 
     const result = await this.queryInvoicesFilled(
