@@ -18,9 +18,10 @@
  * the internal key only removes the scheduling:view permission requirement, it
  * does not change which tenant's data the caller can read.
  *
- * Not fronted by API Gateway (path is under `/internal`, Service Connect mesh
- * only) — hence exempt from the route-drift linter and classified `internal`
- * by the authz-coverage audit.
+ * Fronted by API-B behind the shared authorizer (registered in
+ * `server/lib/tenant-api-additions.json`, cost-redesign Sprint 2); finance
+ * reaches it through `IDENTITY_SERVICE_URL`, which points at API-B on Lambda.
+ * Classified `internal` by the authz-coverage audit.
  */
 
 import { Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
