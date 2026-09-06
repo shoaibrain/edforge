@@ -229,6 +229,96 @@ export interface InvoiceProvenanceDto {
   overrides?: InvoiceProvenanceOverrideDto[];
 }
 
+/**
+ * The amounts an active agreement substitutes for the catalog fees it
+ * covers, for one student.
+ *
+ * Extracted so `planAgreementPricing` (what actually gets billed) and
+ * `bulkPreview` (what the operator is shown before billing) cannot drift.
+ * Issue #465: the wizard previewed agreement-covered students at catalog
+ * price, so a family on a NPR 20,000 agreement previewed at NPR 33,000.
+ * Two implementations of the same money question is how that happens, so
+ * there is now one.
+ */
+/**
+ * The live invoice this agreement chain already priced for the student, if
+ * any. Agreements bill once per term per version CHAIN (FB-3.6 mints a new
+ * agreementId per version), so the chain is the primary match and the
+ * per-version id is a belt-and-braces OR.
+ *
+ * Split out of `assertNoExistingAgreementInvoice` so `bulkPreview` can ask
+ * the same question without throwing (issue #465): the preview previously
+ * reported these students as eligible, then generation rejected every one
+ * of them with 409 AGREEMENT_ACTIVE.
+ */
+/**
+ * Per-student agreement projection returned by `bulkPreview` (#465). The
+ * caller totals a batch as:
+ *   catalog(requested structures NOT in suppressedFeeStructureIds)
+ *     + agreementAmount
+ * so the number an operator confirms is the number that will be billed.
+ */
+export interface PreviewBillingSource {
+  studentId: string;
+  billingSource: 'standard' | 'agreement' | 'mixed';
+  /** Requested feeTypes the agreement covers. Absent when standard. */
+  coveredFeeTypes?: string[];
+  /** Requested fee structures the agreement replaces. Absent when standard. */
+  suppressedFeeStructureIds?: string[];
+  /** What replaces them, in the tenant currency. Absent when standard. */
+  agreementAmount?: number;
+  /** This agreement already priced an invoice this term — generation will 409. */
+  agreementBlocked?: boolean;
+}
+
+export function findAgreementInvoiceConflict(
+  invoices: Array<{ agreementChainId?: string; agreementId?: string; status: string; invoiceId: string; invoiceNumber: string }>,
+  agreementId: string,
+  agreementChainId: string,
+) {
+  return invoices.find(
+    (inv) =>
+      (inv.agreementChainId === agreementChainId || inv.agreementId === agreementId) &&
+      !AGREEMENT_GUARD_DEAD_STATUSES.has(inv.status),
+  );
+}
+
+export function agreementReplacementLines(
+  agreement: {
+    title: string;
+    terms:
+      | { agreementType: 'fixed_total'; totalAmount: number }
+      | { agreementType: 'per_student'; lines: Array<{ studentId: string; feeType?: string; amount: number }> };
+  },
+  allocationForStudent: number | null,
+  studentId: string,
+  coveredFeeTypes: string[],
+): Array<{ feeType?: string; description: string; amount: number }> {
+  if (agreement.terms.agreementType === 'fixed_total') {
+    // `null` allocation = member covered for suppression purposes but with
+    // no replacement amount (resolver contract) — suppress only.
+    if (allocationForStudent === null) return [];
+    return [{
+      description: `${agreement.title} (family agreement)`,
+      amount: Math.round(allocationForStudent * 100) / 100,
+    }];
+  }
+
+  const out: Array<{ feeType?: string; description: string; amount: number }> = [];
+  for (const line of agreement.terms.lines) {
+    if (line.studentId !== studentId) continue;
+    // Matching = feeType ∈ the partitioned covered set (settled semantics
+    // 5b). Lump-sum lines (no feeType) never match.
+    if (line.feeType === undefined || !coveredFeeTypes.includes(line.feeType)) continue;
+    out.push({
+      feeType: line.feeType,
+      description: `${agreement.title} — ${line.feeType} (family agreement)`,
+      amount: Math.round(line.amount * 100) / 100,
+    });
+  }
+  return out;
+}
+
 @Injectable()
 export class InvoicesService {
   private readonly logger = new Logger(InvoicesService.name);
@@ -364,7 +454,6 @@ export class InvoicesService {
       context,
     );
 
-    const agreementLines: InvoiceLineItemData[] = [];
     const baseLine = {
       quantity: 1,
       discount: 0,
@@ -376,38 +465,20 @@ export class InvoicesService {
       agreementVersion: agreement.version,
       suppressedFeeStructureIds,
     };
-    if (agreement.terms.agreementType === 'fixed_total') {
-      // `null` allocation = member covered for suppression purposes but
-      // with no replacement amount (resolver contract) — suppress only.
-      if (allocationForStudent !== null) {
-        const amount = Math.round(allocationForStudent * 100) / 100;
-        agreementLines.push({
-          ...baseLine,
-          id: uuid(),
-          feeStructureId: uuid(),
-          description: `${agreement.title} (family agreement)`,
-          amount,
-          total: amount,
-        });
-      }
-    } else {
-      for (const line of agreement.terms.lines) {
-        if (line.studentId !== studentId) continue;
-        // Matching = feeType ∈ the partitioned covered set (settled
-        // semantics 5b). Lump-sum lines (no feeType) never match.
-        if (line.feeType === undefined || !coveredFeeTypes.includes(line.feeType)) continue;
-        const amount = Math.round(line.amount * 100) / 100;
-        agreementLines.push({
-          ...baseLine,
-          id: uuid(),
-          feeStructureId: uuid(),
-          feeType: line.feeType,
-          description: `${agreement.title} — ${line.feeType} (family agreement)`,
-          amount,
-          total: amount,
-        });
-      }
-    }
+    const agreementLines: InvoiceLineItemData[] = agreementReplacementLines(
+      agreement,
+      allocationForStudent,
+      studentId,
+      coveredFeeTypes,
+    ).map((line) => ({
+      ...baseLine,
+      id: uuid(),
+      feeStructureId: uuid(),
+      ...(line.feeType !== undefined ? { feeType: line.feeType } : {}),
+      description: line.description,
+      amount: line.amount,
+      total: line.amount,
+    }));
 
     return {
       agreementId: agreement.agreementId,
@@ -465,11 +536,7 @@ export class InvoicesService {
       context,
     );
 
-    const conflict = invoices.find(
-      (inv) =>
-        (inv.agreementChainId === agreementChainId || inv.agreementId === agreementId) &&
-        !AGREEMENT_GUARD_DEAD_STATUSES.has(inv.status),
-    );
+    const conflict = findAgreementInvoiceConflict(invoices, agreementId, agreementChainId);
 
     if (conflict) {
       throw new ConflictException({
@@ -2860,15 +2927,18 @@ export class InvoicesService {
     studentsWithBalance?: number;
     studentsNotBilledThisPeriod?: number;
     studentsNewAdmission?: number;
-    students?: Array<{ studentId: string; billingSource: 'standard' | 'agreement' | 'mixed' }>;
+    /** #465 — students whose agreement already priced this term; generation 409s them. */
+    agreementBlockedCount?: number;
+    students?: PreviewBillingSource[];
   }> {
     const studentIds = await this.resolveStudentIdsForBulkGenerate(schoolId, dto, context);
 
     // Duplicate detection is best-effort + counts-only — failures
     // collapse to "0 duplicates" rather than 500ing the preview.
     let duplicateCount = 0;
+    let dupResults: Array<PromiseSettledResult<boolean>> = [];
     if (dto.feeStructureIds.length > 0) {
-      const dupResults = await Promise.allSettled(
+      dupResults = await Promise.allSettled(
         studentIds.map(studentId =>
           this.hasDuplicateInvoice(
             schoolId,
@@ -2884,10 +2954,13 @@ export class InvoicesService {
       }
     }
 
-    const eligibleCount = studentIds.length - duplicateCount;
-    // ~300ms/student average per generate path; rough enough for an
-    // operator confirmation banner ("≈ 30 sec for 100 students").
-    const estimatedDurationSec = Math.max(1, Math.ceil(eligibleCount * 0.3));
+    const duplicateStudentIds = new Set<string>();
+    if (dto.feeStructureIds.length > 0) {
+      studentIds.forEach((studentId, i) => {
+        const r = dupResults[i];
+        if (r && r.status === 'fulfilled' && r.value === true) duplicateStudentIds.add(studentId);
+      });
+    }
 
     // Sprint C Phase 1 — three derivable-segment counters powering the
     // wizard Step 1 rail's "balance due / new admission / not billed this
@@ -2917,8 +2990,23 @@ export class InvoicesService {
       context,
     );
 
+    // #465 — a student whose agreement already priced this term is NOT
+    // eligible: generation rejects them with 409 AGREEMENT_ACTIVE. Counted
+    // separately from catalog duplicates (they are different reasons) and
+    // unioned for eligibility so a student who is both is not counted twice.
+    const agreementBlockedIds = new Set(
+      (students ?? []).filter((st) => st.agreementBlocked).map((st) => st.studentId),
+    );
+    const ineligible = new Set([...duplicateStudentIds, ...agreementBlockedIds]);
+    const eligibleCount = studentIds.length - ineligible.size;
+
+    // ~300ms/student average per generate path; rough enough for an
+    // operator confirmation banner ("≈ 30 sec for 100 students").
+    const estimatedDurationSec = Math.max(1, Math.ceil(Math.max(eligibleCount, 0) * 0.3));
+
     this.logger.log(
-      `bulkPreview schoolId=${schoolId} resolved=${studentIds.length} duplicates=${duplicateCount} eligible=${eligibleCount}`,
+      `bulkPreview schoolId=${schoolId} resolved=${studentIds.length} duplicates=${duplicateCount} ` +
+      `agreementBlocked=${agreementBlockedIds.size} eligible=${eligibleCount}`,
     );
 
     return {
@@ -2927,7 +3015,7 @@ export class InvoicesService {
       duplicateCount,
       estimatedDurationSec,
       ...segCounters,
-      ...(students ? { students } : {}),
+      ...(students ? { students, agreementBlockedCount: agreementBlockedIds.size } : {}),
     };
   }
 
@@ -2936,7 +3024,7 @@ export class InvoicesService {
     studentIds: string[],
     feeStructureIds: string[],
     context: RequestContext,
-  ): Promise<Array<{ studentId: string; billingSource: 'standard' | 'agreement' | 'mixed' }> | undefined> {
+  ): Promise<PreviewBillingSource[] | undefined> {
     if (process.env.BILLING_AGREEMENTS_ENABLED === 'false') return undefined;
     if (!this.agreementResolver) return undefined;
 
@@ -2952,8 +3040,15 @@ export class InvoicesService {
             ]
           : [];
 
+      // Requested structures, so the preview can name exactly which ones an
+      // agreement replaces rather than leaving the caller to guess (#465).
+      const requested = feeStructureIds.length > 0
+        ? await this.feeStructuresService.getByIds(schoolId, feeStructureIds, context)
+        : [];
+
       const memo: AgreementResolutionMemo = new Map();
       const today = todayIsoDate();
+      const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
 
       return await Promise.all(
         studentIds.map(async (studentId) => {
@@ -2964,18 +3059,58 @@ export class InvoicesService {
             context,
             memo,
           );
-          let billingSource: 'standard' | 'agreement' | 'mixed' = 'standard';
-          if (resolved && requestedFeeTypes.length > 0) {
-            const coveredSet = new Set<string>(resolved.agreement.coveredFeeTypes as string[]);
-            const coveredCount = requestedFeeTypes.filter((t) => coveredSet.has(t)).length;
-            billingSource =
-              coveredCount === 0
-                ? 'standard'
-                : coveredCount === requestedFeeTypes.length
-                  ? 'agreement'
-                  : 'mixed';
+          if (!resolved || requestedFeeTypes.length === 0) {
+            return { studentId, billingSource: 'standard' as const };
           }
-          return { studentId, billingSource };
+
+          const { agreement, allocationForStudent } = resolved;
+          const coveredSet = new Set<string>(agreement.coveredFeeTypes as string[]);
+          const coveredFeeTypes = requestedFeeTypes.filter((t) => coveredSet.has(t));
+          if (coveredFeeTypes.length === 0) {
+            return { studentId, billingSource: 'standard' as const };
+          }
+
+          const billingSource =
+            coveredFeeTypes.length === requestedFeeTypes.length ? 'agreement' as const : 'mixed' as const;
+
+          // Same partition the generate path makes: a requested structure
+          // whose feeType the agreement covers is suppressed and replaced.
+          const suppressedFeeStructureIds = requested
+            .filter((fs) => fs.feeType !== undefined && coveredSet.has(fs.feeType as string))
+            .map((fs) => fs.feeStructureId);
+
+          const agreementAmount = agreementReplacementLines(
+            agreement as any,
+            allocationForStudent,
+            studentId,
+            coveredFeeTypes,
+          ).reduce((sum, line) => sum + line.amount, 0);
+
+          // Agreements bill once per term per chain. Generation rejects a
+          // student who already has one with 409 AGREEMENT_ACTIVE, so the
+          // preview has to say so instead of counting them as eligible.
+          let agreementBlocked = false;
+          try {
+            const chainId = agreement.versionParentId || agreement.agreementId;
+            const invoices = await this.queryStudentInvoicesExhaustive(
+              client, studentId, undefined, undefined, undefined, false, context,
+            );
+            agreementBlocked = !!findAgreementInvoiceConflict(
+              invoices as any, agreement.agreementId, chainId,
+            );
+          } catch {
+            // Best-effort, like the rest of the preview: an unknown answer
+            // leaves the student eligible rather than failing the preview.
+          }
+
+          return {
+            studentId,
+            billingSource,
+            coveredFeeTypes,
+            suppressedFeeStructureIds,
+            agreementAmount: Math.round(agreementAmount * 100) / 100,
+            agreementBlocked,
+          };
         }),
       );
     } catch (e: any) {
