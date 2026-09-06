@@ -20,6 +20,8 @@
 export class ErrorResponseDto {
   statusCode: number;
   errorCode: string;
+  /** Domain error code thrown by the service (e.g. `AGREEMENT_ACTIVE`). */
+  code?: string;
   message: string;
   errors?: any[];
   details?: Record<string, unknown>;
@@ -27,6 +29,8 @@ export class ErrorResponseDto {
   requestId?: string;
   path?: string;
   correlationId?: string;
+  /** Domain payload thrown alongside `code` (e.g. `conflicts`, `agreementId`). */
+  [payloadKey: string]: unknown;
 }
 
 /**

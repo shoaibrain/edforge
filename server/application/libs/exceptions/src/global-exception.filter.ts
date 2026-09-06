@@ -19,6 +19,17 @@ import { Request, Response } from 'express';
 import { ErrorResponseDto } from './error-response.dto';
 import { BusinessException } from './exceptions';
 
+const ENVELOPE_KEYS = new Set([
+  'statusCode',
+  'errorCode',
+  'code',
+  'message',
+  'errors',
+  'details',
+  'error',
+  'timestamp',
+]);
+
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(GlobalExceptionFilter.name);
@@ -30,9 +41,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     let status: HttpStatus;
     let errorCode: string;
+    let code: string | undefined;
     let message: string;
     let details: any;
     let errors: any[] | undefined;
+    let domain: Record<string, unknown> = {};
     let originalStack: string | undefined;
 
     if (exception instanceof BusinessException) {
@@ -52,10 +65,19 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       if (typeof exceptionResponse === 'string') {
         message = exceptionResponse;
       } else if (typeof exceptionResponse === 'object') {
-        const responseObj = exceptionResponse as any;
+        const responseObj = exceptionResponse as Record<string, any>;
         message = responseObj.message || exception.message;
         errorCode = responseObj.errorCode || errorCode;
+        code = typeof responseObj.code === 'string' ? responseObj.code : undefined;
         details = responseObj.details;
+        // Services throw `new ConflictException({ code, message, ...payload })`
+        // (finance AGREEMENT_ACTIVE carries agreementId/existingInvoiceId,
+        // CONFLICTING_OPEN_INVOICES carries conflicts[]); the payload is
+        // forwarded so clients can act on it. `error` is Nest's own label on
+        // string-constructed exceptions, not payload.
+        domain = Object.fromEntries(
+          Object.entries(responseObj).filter(([key]) => !ENVELOPE_KEYS.has(key)),
+        );
 
         // Extract Zod validation errors (nestjs-zod puts them in 'errors')
         if (!details && responseObj.errors) {
@@ -109,12 +131,15 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     // Extract request ID from headers or JWT
     const requestId = this.extractRequestId(request);
 
+    // Envelope fields come last so a payload key can never overwrite them.
     const errorResponse: ErrorResponseDto = {
       statusCode: status,
       errorCode,
+      ...(code && { code }),
       message,
       ...(errors && { errors }),
       details,
+      ...domain,
       timestamp: new Date().toISOString(),
       requestId,
       path: request.url,
