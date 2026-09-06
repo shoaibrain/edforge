@@ -29,6 +29,36 @@ operator-specific deployment evidence. The entries below preserve durable public
 status without raw log links, account IDs, ARNs, tenant UUIDs, operator emails,
 JWT claims, or environment-specific hostnames.
 
+### 2026-09-06 — Agreement-aware bulk preview and invoice-number lookup — Green
+
+- **Scope:** PRs #472 (issue #465 backend) and #473 (issue #348 backend),
+  both merged to main first and deployed together from main. The bulk
+  preview now reports what a student's agreement replaces and for how much,
+  and marks students the once-per-term guard would reject; invoice-number
+  lookup routes to the GSI built for it, which had no readers until now.
+- **Ladder:** 240 suites / 3,708 tests green → three `nest build`s →
+  `typecheck:cdk` clean → lint 0 errors → route-drift 4/4 and generated
+  OpenAPI current → three Lambda bundle guards → `cdk diff`: three finance
+  function assets, the commit stamp, one output, zero DynamoDB and zero IAM
+  lines. Identity and academics bundles hashed identical to the deployed
+  ones and were not touched.
+- **Deploy:** stack update 38 s (103 s total); finance function Active /
+  Successful; authorizer 401 unauthenticated; zero errors in the finance log
+  group afterwards.
+- **Validation:** bulk preview for a student under an active agreement that
+  had already priced this term returned `eligibleCount: 0` with
+  `duplicateCount: 0` and `agreementBlockedCount: 1` — the two reasons
+  correctly separated — and the student row carried `billingSource:
+  agreement`, the covered fee type, the suppressed fee structure, and
+  `agreementAmount` at the agreement price rather than the catalog price.
+  The wizard correspondingly read "Ready to generate 0 invoice" where the
+  same screen previously offered to bill them.
+- **Not validated here:** the invoice-number lookup has no caller yet — the
+  frontend half of #348 is unwritten — so it rests on unit coverage until
+  either that lands or a token-driven probe is run. The preview's corrected
+  grand total likewise waits on frontend #352; the API returns the right
+  numbers today and the wizard still totals from the catalog.
+
 ### 2026-09-06 — Filtered invoice reads and 4xx log severity — Green
 
 - **Scope:** PRs #470 (issues #466, #467) and #471 (issue #468), deployed
