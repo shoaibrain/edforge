@@ -776,6 +776,49 @@ export class IdentityClientService {
   }
 
   /**
+   * #477 — grade level for every student on a school's roster, in one call.
+   *
+   * Same academics endpoint `getStudentIdsByGrade` uses, which already
+   * returns whole student rows and discards all but the id. Bulk invoice
+   * generation needs each student's grade to drop the fees that do not apply
+   * to them; asking per student costs one HTTP round trip per student on a
+   * path that already runs hundreds.
+   *
+   * Bounded by the same `limit: 1000` as the sibling call, so a roster above
+   * that is partial. Callers must treat a missing student as "unknown" and
+   * resolve it individually rather than assuming no grade — see
+   * `InvoicesService.resolveStudentGrade`.
+   *
+   * Failure returns an empty map: callers degrade to per-student lookups.
+   */
+  async getStudentGradesBySchool(
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<Map<string, string>> {
+    const grades = new Map<string, string>();
+    try {
+      const academicsUrl = process.env.ACADEMICS_SERVICE_URL || 'http://academics-api.default.sc:3010';
+      const response = await this.httpClient.get<{
+        items: Array<{ studentId: string; currentGradeLevel?: string; gradeLevel?: string }>;
+      }>(
+        `${academicsUrl}/academics/students`,
+        { params: { schoolId, limit: 1000 } },
+        { tenantId: context.tenantId, userId: context.userId, jwtToken: context.jwtToken, userRole: context.role },
+      );
+      for (const s of response.data?.items ?? []) {
+        const grade = s.currentGradeLevel || s.gradeLevel;
+        if (s.studentId && grade) grades.set(s.studentId, grade);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `getStudentGradesBySchool: failed schoolId=${schoolId}; callers will ` +
+          `resolve grades per student. ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return grades;
+  }
+
+  /**
    * Enforce that the caller owns the student referenced in the entity.
    * Admin/Principal/Accountant bypass; Parent/Student must have linked student.
    * Throws ForbiddenException if access is denied.

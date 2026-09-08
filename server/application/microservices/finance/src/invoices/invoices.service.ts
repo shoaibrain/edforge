@@ -10,6 +10,8 @@ import { PdfLogoOptimizerService } from '../common/services/pdf-logo-optimizer.s
 import { TenantSettingsService } from '../common/services/tenant-settings.service';
 import { SequenceService } from '../common/services/sequence.service';
 import { FeeStructuresService } from '../fee-structures/fee-structures.service';
+import { partitionFeesByGrade } from '../fee-structures/fee-applicability';
+import { FeeStructureEntity } from '../common/entities/fee-structure.entity';
 import { StudentAccountsService } from '../student-accounts/student-accounts.service';
 import {
   InvoiceEntity,
@@ -166,6 +168,24 @@ export type AcademicYearResolution =
 
 export function createSiblingDiscountMemo(): SiblingDiscountMemo {
   return { rules: new Map(), counts: new Map(), academicYearIds: new Map() };
+}
+
+/**
+ * #477 — per-run cache of each student's grade level, keyed by studentId.
+ *
+ * The bulk paths need a student's grade *before* fee structures are planned,
+ * to drop the fees that do not apply to them. `generate()` resolves the same
+ * student a few steps later for the invoice's grade snapshot, so without a
+ * memo every bulk student would cost two identical identity round trips.
+ *
+ * A `null` value is a resolved-but-unknown grade and is cached like any other
+ * answer: re-asking identity for a student it has already failed to place
+ * costs a round trip per student and returns the same nothing.
+ */
+export type StudentGradeMemo = Map<string, string | null>;
+
+export function createStudentGradeMemo(): StudentGradeMemo {
+  return new Map();
 }
 
 // ============================================================================
@@ -2956,6 +2976,95 @@ export class InvoicesService {
    * operator to the async path (Sprint E).
    */
   /**
+   * #477 — fill `memo` with every grade the school roster can supply, in one
+   * call, before a bulk run starts resolving students one at a time.
+   *
+   * The roster read is capped (see `getStudentGradesBySchool`), so this seeds
+   * what it can and leaves the rest absent; `resolveStudentGrade` then falls
+   * back to a per-student lookup for whatever is missing. That keeps a
+   * typical run at one round trip while staying correct on a roster larger
+   * than the cap.
+   */
+  async seedStudentGradeMemo(
+    schoolId: string,
+    studentIds: string[],
+    context: RequestContext,
+    memo: StudentGradeMemo,
+  ): Promise<void> {
+    if (studentIds.length === 0) return;
+    const wanted = new Set(studentIds);
+    const roster = await this.identityClient.getStudentGradesBySchool(schoolId, context);
+    for (const [studentId, grade] of roster) {
+      if (wanted.has(studentId) && !memo.has(studentId)) memo.set(studentId, grade);
+    }
+  }
+
+  /**
+   * #477 — resolve a student's grade level through the per-run memo.
+   *
+   * Best-effort by design. Identity being unreachable must not fail a whole
+   * bulk run, so a failure resolves to `null`, which
+   * `resolveApplicableFeeIds` treats as "cannot evaluate" and bills the full
+   * requested set — the pre-#477 behaviour, and the safe direction: it
+   * under-filters rather than silently dropping fees an operator asked for.
+   */
+  private async resolveStudentGrade(
+    studentId: string,
+    schoolId: string,
+    context: RequestContext,
+    memo: StudentGradeMemo,
+  ): Promise<string | null> {
+    const cached = memo.get(studentId);
+    if (cached !== undefined) return cached;
+
+    let grade: string | null = null;
+    try {
+      const info = await this.identityClient.getStudentInfo(studentId, {
+        ...context,
+        schoolId,
+      } as RequestContext);
+      grade = info?.gradeLevel ?? null;
+    } catch (err) {
+      this.logger.warn(
+        `resolveStudentGrade: identity lookup failed for studentId=${studentId} ` +
+          `schoolId=${schoolId}; billing the full requested fee set. ${(err as Error).message}`,
+      );
+    }
+    memo.set(studentId, grade);
+    return grade;
+  }
+
+  /**
+   * #477 — narrow `feeStructures` to the subset billable to `studentId`,
+   * returning their ids.
+   *
+   * Returns `null` when the student's grade excludes every fee: that student
+   * has nothing to bill and both bulk paths skip them rather than writing a
+   * zero-line invoice. The count of such students is what `bulkPreview`
+   * reports as `noApplicableFeesCount`.
+   *
+   * Takes already-fetched entities: every caller resolves the fee set once
+   * per run, so re-reading it per student would add a DDB batch-get to the
+   * hottest loop in bulk generation.
+   */
+  async resolveApplicableFeeIds(
+    schoolId: string,
+    studentId: string,
+    feeStructures: FeeStructureEntity[],
+    context: RequestContext,
+    memo: StudentGradeMemo,
+  ): Promise<string[] | null> {
+    const grade = await this.resolveStudentGrade(studentId, schoolId, context, memo);
+    const { applicable, gradeResolved } = partitionFeesByGrade(
+      feeStructures,
+      grade ?? undefined,
+    );
+    if (!gradeResolved) return feeStructures.map(fs => fs.feeStructureId);
+    if (applicable.length === 0) return null;
+    return applicable.map(fs => fs.feeStructureId);
+  }
+
+  /**
    * Bulk Ops Sprint C.6 — preview the result of a bulk-generate call
    * WITHOUT writing anything. Wizard's Step 4 confirm screen consumes
    * this to render "Will generate N invoices, M skipped (duplicates),
@@ -2991,6 +3100,8 @@ export class InvoicesService {
     studentsNewAdmission?: number;
     /** #465 — students whose agreement already priced this term; generation 409s them. */
     agreementBlockedCount?: number;
+    /** #477 — students no requested fee structure applies to; generation skips them. */
+    noApplicableFeesCount?: number;
     students?: PreviewBillingSource[];
   }> {
     const studentIds = await this.resolveStudentIdsForBulkGenerate(schoolId, dto, context);
@@ -3059,7 +3170,50 @@ export class InvoicesService {
     const agreementBlockedIds = new Set(
       (students ?? []).filter((st) => st.agreementBlocked).map((st) => st.studentId),
     );
-    const ineligible = new Set([...duplicateStudentIds, ...agreementBlockedIds]);
+    // #477 — a student none of the requested fees applies to has nothing to
+    // bill: generation skips them, so preview must not count them eligible.
+    // Best-effort like the counters above — if the fee structures cannot be
+    // read we simply do not filter, leaving the pre-#477 count.
+    const noApplicableFeeIds = new Set<string>();
+    if (dto.feeStructureIds.length > 0) {
+      try {
+        const feeStructures = await this.feeStructuresService.getByIds(
+          schoolId,
+          dto.feeStructureIds,
+          context,
+        );
+        const gradeMemo = createStudentGradeMemo();
+        await this.seedStudentGradeMemo(schoolId, studentIds, context, gradeMemo);
+        const applicability = await Promise.allSettled(
+          studentIds.map(async studentId => ({
+            studentId,
+            ids: await this.resolveApplicableFeeIds(
+              schoolId,
+              studentId,
+              feeStructures,
+              context,
+              gradeMemo,
+            ),
+          })),
+        );
+        for (const r of applicability) {
+          if (r.status === 'fulfilled' && r.value.ids === null) {
+            noApplicableFeeIds.add(r.value.studentId);
+          }
+        }
+      } catch (err) {
+        this.logger.warn(
+          `bulkPreview: grade-applicability pass failed for schoolId=${schoolId}; ` +
+            `reporting counts without it. ${(err as Error).message}`,
+        );
+      }
+    }
+
+    const ineligible = new Set([
+      ...duplicateStudentIds,
+      ...agreementBlockedIds,
+      ...noApplicableFeeIds,
+    ]);
     const eligibleCount = studentIds.length - ineligible.size;
 
     // ~300ms/student average per generate path; rough enough for an
@@ -3068,7 +3222,8 @@ export class InvoicesService {
 
     this.logger.log(
       `bulkPreview schoolId=${schoolId} resolved=${studentIds.length} duplicates=${duplicateCount} ` +
-      `agreementBlocked=${agreementBlockedIds.size} eligible=${eligibleCount}`,
+      `agreementBlocked=${agreementBlockedIds.size} noApplicableFees=${noApplicableFeeIds.size} ` +
+      `eligible=${eligibleCount}`,
     );
 
     return {
@@ -3078,6 +3233,7 @@ export class InvoicesService {
       estimatedDurationSec,
       ...segCounters,
       ...(students ? { students, agreementBlockedCount: agreementBlockedIds.size } : {}),
+      noApplicableFeesCount: noApplicableFeeIds.size,
     };
   }
 
@@ -3360,6 +3516,10 @@ export class InvoicesService {
     // FB-5.2 — one sibling-discount memo per run: the rule list is fetched
     // once for the whole batch instead of once per student.
     const siblingMemo = createSiblingDiscountMemo();
+    // #477 — grades for the whole selection in one roster read, so the
+    // per-student applicability check below costs no extra round trips.
+    const gradeMemo = createStudentGradeMemo();
+    await this.seedStudentGradeMemo(schoolId, studentIds, context, gradeMemo);
 
     // Process students in batches
     for (let i = 0; i < studentIds.length; i += BATCH_SIZE) {
@@ -3379,17 +3539,33 @@ export class InvoicesService {
             return 'skipped';
           }
 
+          // #477 — bill each student only the fees their grade allows. The
+          // operator selects fees for a cohort, not for one named student,
+          // so a fee that does not apply is dropped rather than failing the
+          // student. Nothing applicable at all means nothing to bill.
+          const applicableFeeIds = await this.resolveApplicableFeeIds(
+            schoolId,
+            studentId,
+            feeStructures,
+            context,
+            gradeMemo,
+          );
+          if (applicableFeeIds === null) {
+            return 'skipped';
+          }
+
           // Generate invoice for this student
           await this.generate(
             schoolId,
             {
               studentId: studentId,
-              feeStructureIds: dto.feeStructureIds,
+              feeStructureIds: applicableFeeIds,
               academicYear: dto.academicYear,
               billingPeriod: dto.billingPeriod,
               dueDate: dto.dueDate,
               notes: dto.notes,
               customLineItems: dto.customLineItems,
+              gradeLevel: gradeMemo.get(studentId) ?? undefined,
             },
             context,
             agreementMemo,
@@ -3459,6 +3635,20 @@ export class InvoicesService {
       const foundIds = new Set(feeStructures.map((f) => f.feeStructureId));
       const missing = dto.feeStructureIds.filter((id) => !foundIds.has(id));
       throw new NotFoundException(`Fee structures not found: ${missing.join(', ')}`);
+    }
+
+    // 1a. #477 — grade-compatibility safety net, mirroring generate():1156.
+    // The worker narrows the fee set per student before calling in, so this
+    // should never fire; it exists so a caller that forgets to filter fails
+    // loudly instead of billing a student for another grade's fees.
+    if (dto.gradeLevel) {
+      for (const fs of feeStructures) {
+        if (fs.gradeLevels.length > 0 && !fs.gradeLevels.includes(dto.gradeLevel)) {
+          throw new BadRequestException(
+            `Fee structure "${fs.name}" (${fs.feeStructureId}) is not applicable to grade ${dto.gradeLevel}. Valid grades: ${fs.gradeLevels.join(', ')}`,
+          );
+        }
+      }
     }
 
     // 1b. EPIC-FB settled semantics hook — same partition/suppress/append
