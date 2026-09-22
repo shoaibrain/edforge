@@ -29,6 +29,56 @@ operator-specific deployment evidence. The entries below preserve durable public
 status without raw log links, account IDs, ARNs, tenant UUIDs, operator emails,
 JWT claims, or environment-specific hostnames.
 
+### 2026-09-22 — School reads scope to the caller's role assignments — Green
+
+- **Scope:** PR #492 (issue #484). `GET /schools` carried no guard and no
+  service-layer check, so any authenticated principal in a tenant received
+  every school in it, including each one's government IEMIS school code,
+  address, phone and contact email. Tenant isolation held throughout; the
+  boundary that failed was the one between principals inside a tenant.
+  `GET /schools/:id` and `.../configuration` were unguarded passthroughs
+  too, so all three reads are scoped: a tenant-wide global role sees every
+  school, every other principal sees only schools it holds an active role
+  assignment at. Both the list filter and the by-id checks resolve from one
+  helper, so they cannot drift apart. Deployed from the PR branch first, at
+  the operator's direction, and merged only after validation passed.
+- **Root cause beyond the handler:** the authz audit passed before and after
+  the change. These routes sat in the allowlist under "authenticated
+  tenant-scoped reference reads", a category that is sound for a
+  single-school tenant or a staff-only user base and wrong for a
+  multi-school tenant containing parents and students. The allowlist heading
+  now carries an explicit caution and the three routes moved to the
+  service-layer-enforced group.
+- **Ladder:** 243 suites / 3,752 tests green → three `nest build`s → the
+  identity module-wiring spec 35/35 → `typecheck:cdk` clean → lint 0 errors
+  (939 ratchet warnings, none added) → route-drift 4/4, authz coverage clean
+  and generated OpenAPI current → three Lambda bundle guards → `cdk diff`:
+  **one** function asset (identity only), the commit stamp, one output,
+  **zero DynamoDB and zero IAM lines**; shared-infra and controlplane showed
+  no differences. Academics and finance bundles hashed identical to the
+  deployed ones and were not touched.
+- **Deploy:** 96 s total; identity function Active / Successful on
+  nodejs22.x; authorizer 401 unauthenticated; cold start clean with no
+  runtime errors.
+- **Validation:** exercised in production with real tokens for both
+  principal types. A parent principal assigned to exactly one school now
+  receives **one** school from the listing where it previously received all
+  three, with no other school's IEMIS code anywhere in the payload and
+  `hasMore` false so the count itself discloses nothing; by-id reads of an
+  unassigned school return **403** on both the record and its configuration,
+  while its own school still returns 200. A tenant-wide principal still
+  receives all three schools and by-id access to each. That principal holds
+  **no** explicit role assignments, so it also demonstrates that the
+  tenant-wide short-circuit works — an assignment-only rule would have
+  locked administrators out of every school. Refusals log at WARN with
+  actor, school, tenant and role; exactly the expected refusals appeared and
+  none against the tenant-wide role.
+- **Not covered here:** trimming the government code and contact fields out
+  of responses for non-admin principals is a response-contract change and
+  was deliberately left for its own compatibility pass. The operator-facing
+  school switcher now lists fewer schools for a parent — intended, but
+  validated at the API rather than in the UI.
+
 ### 2026-09-22 — Bulk generation honours fee-structure grade applicability — Green
 
 - **Scope:** PR #478 (issue #477). `generate()` validated fee/grade
