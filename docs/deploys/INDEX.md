@@ -29,6 +29,68 @@ operator-specific deployment evidence. The entries below preserve durable public
 status without raw log links, account IDs, ARNs, tenant UUIDs, operator emails,
 JWT claims, or environment-specific hostnames.
 
+### 2026-09-22 — Bulk generation honours fee-structure grade applicability — Green
+
+- **Scope:** PR #478 (issue #477). `generate()` validated fee/grade
+  compatibility only when the caller passed a grade level, and neither bulk
+  path did — the sync path left the check gated off and the async worker had
+  none at all, so every selected fee was written onto every student
+  regardless of grade. Both bulk paths now narrow the fee set per student and
+  skip a student nothing applies to; `bulkPreview` applies the identical rule
+  and reports `noApplicableFeesCount`, so preview and generation cannot
+  diverge again. Deployed from the PR branch first, at the operator's
+  direction, and merged only after validation passed.
+- **Ladder:** 242 suites / 3,740 tests green → three `nest build`s →
+  `typecheck:cdk` clean → lint 0 errors (939 ratchet warnings, none added) →
+  route-drift 4/4 and generated OpenAPI current → three Lambda bundle guards
+  → `cdk diff`: three finance function assets, the commit stamp, one output,
+  **zero DynamoDB and zero IAM lines**; shared-infra and controlplane showed
+  no differences. Identity and academics bundles hashed identical to the
+  deployed ones and were not touched.
+- **Deploy:** stack update 43 s (300 s total); all three finance functions
+  Active / Successful on nodejs22.x sharing one new code asset; authorizer
+  401 unauthenticated.
+- **Validation:** re-ran the exact scenario that produced the issue — five
+  students, two grade-scoped tuition fees, one term. Generation returned
+  **0 generated / 3 skipped** where it previously returned 3 generated, and
+  no invoices were written (per-student counts unchanged against a baseline
+  captured immediately before the run). Preview agreed exactly:
+  `eligibleCount: 0`, `agreementBlockedCount: 2`, `noApplicableFeesCount: 3`.
+  Cohort regression in both directions: a 67-student grade cohort billed its
+  own grade's fee returned **66 eligible with zero filtered** (the single
+  exclusion being an active agreement), and the same cohort billed another
+  grade's fee returned **0 eligible with all 67 filtered**. The prior
+  invoice-number lookup still returned one row against fifty unfiltered, and
+  the invalid filter combination still returned its domain code. Cold start
+  clean with no new errors in the finance log group.
+- **Follow-up:** the operator-facing count row is frontend work tracked
+  separately; the backend field is live ahead of it. Whether earlier bulk
+  runs in any tenant already produced mis-graded invoices has not been
+  audited.
+
+### 2026-09-06 — Staff invoice list forwards the invoice-number filter — Green
+
+- **Scope:** PR #476 (issue #475), deployed the same day as the entry below
+  but recorded late. The controller accepted `invoiceNumber` on the two
+  parent/student branches and discarded it on both staff branches, so a
+  Parent got a filtered result while a Principal or Accountant got the
+  unfiltered first page. Also rejects a student filter combined with an
+  invoice number rather than silently ignoring the number.
+- **Ladder:** 240 suites / 3,716 tests green → three `nest build`s →
+  `typecheck:cdk` clean → lint 0 errors → route-drift 4/4 and generated
+  OpenAPI current → three Lambda bundle guards → `cdk diff`: three finance
+  function assets, the commit stamp, one output, zero DynamoDB and zero IAM
+  lines.
+- **Deploy:** stack update 37 s (98 s total); all three finance functions
+  Active / Successful; authorizer 401 unauthenticated; no errors in the
+  finance log group afterwards.
+- **Validation:** at deploy time this rested on unit coverage, since no
+  caller existed and the route was confirmed present in the deployed API
+  surface only by its authorizer behaviour. It was later exercised directly
+  with a staff token during the 2026-09-22 validation above: the filter
+  returned exactly one row against fifty unfiltered, and the invalid
+  combination returned its domain code.
+
 ### 2026-09-06 — Agreement-aware bulk preview and invoice-number lookup — Green
 
 - **Scope:** PRs #472 (issue #465 backend) and #473 (issue #348 backend),
