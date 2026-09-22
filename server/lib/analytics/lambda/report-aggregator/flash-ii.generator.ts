@@ -73,13 +73,37 @@ export function generateFlashIICsv(rows: ReportRow[]): {
   csv: string;
   rowCount: number;
   missingExamPipelineCount: number;
+  missingEmisStudentIdCount: number;
+  missingEmisStudentIdSample: string[];
 } {
   const headers = FLASH_II_COLUMNS.map((c) => c.header);
   let missingExamPipelineCount = 0;
+  // #481 — `student_iemis_id` is optional on Flash I and required on Flash II,
+  // because CEHRD issues it after intake. Creation no longer demands it, so
+  // this is where the rule is enforced: IEMIS rejects the *entire* upload on
+  // row-level validation failure, and an operator who learns that from CEHRD
+  // rather than from us has already lost the submission window.
+  //
+  // Counted, not blocked. Refusing to generate would withhold the very file
+  // that tells the operator which students to fix.
+  const missingEmisStudentId: string[] = [];
   const dataRows = rows.map((row) => {
     if (!row.resultCards || row.resultCards.length === 0) missingExamPipelineCount += 1;
+    if (!resolvePath(row, 'student.emisStudentId')) {
+      const s = row.student as Record<string, unknown> | undefined;
+      missingEmisStudentId.push(
+        [s?.studentId, s?.firstName, s?.lastName].filter(Boolean).join(' ') || '(unidentified row)',
+      );
+    }
     return FLASH_II_COLUMNS.map((col) => buildCellValue(row, col));
   });
   const csv = csvStringify([headers, ...dataRows], { quoted_string: true });
-  return { csv, rowCount: dataRows.length, missingExamPipelineCount };
+  return {
+    csv,
+    rowCount: dataRows.length,
+    missingExamPipelineCount,
+    missingEmisStudentIdCount: missingEmisStudentId.length,
+    // Bounded: the operator needs enough to start, not the whole roster in a log line.
+    missingEmisStudentIdSample: missingEmisStudentId.slice(0, 20),
+  };
 }

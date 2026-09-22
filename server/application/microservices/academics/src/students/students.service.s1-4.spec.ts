@@ -12,6 +12,7 @@
  */
 
 import { BadRequestException, ConflictException } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { StudentsService } from './students.service';
 
 type PartialMocks = Record<string, jest.Mock>;
@@ -81,19 +82,31 @@ const studentDtoBase = {
 };
 
 describe('StudentsService.createStudent — IEMIS student-ID gate (S1.4)', () => {
-  it('rejects with 400 EMIS_STUDENT_ID_REQUIRED when school is IEMIS-registered and emisStudentId is missing', async () => {
+  // #481 — this case previously asserted a 400 EMIS_STUDENT_ID_REQUIRED. That
+  // gate was the bug: CEHRD issues the student IEMIS ID *after* Flash I, so a
+  // new ECED/Grade 1 entrant provably cannot have one at enrolment, and every
+  // PABSON school carries an emisSchoolCode. The assertion is inverted rather
+  // than deleted, so the regression it now guards is the re-introduction of
+  // the gate.
+  it('allows creation without emisStudentId at an IEMIS-registered school', async () => {
     const { svc, dynamoDBClient } = makeServiceWithMocks({ emisSchoolCode: '31012345' });
 
-    await expect(svc.createStudent(studentDtoBase as any, ctx)).rejects.toMatchObject({
-      status: 400,
-      response: expect.objectContaining({
-        errorCode: 'EMIS_STUDENT_ID_REQUIRED',
-        details: expect.objectContaining({ field: 'emisStudentId', schoolId: 'school-1' }),
-      }),
-    });
-    // Gate fires BEFORE any DDB put — regression guard against the
-    // "partially created student" class of bugs.
-    expect(dynamoDBClient.putItem).not.toHaveBeenCalled();
+    await expect(svc.createStudent(studentDtoBase as any, ctx)).resolves.toBeDefined();
+    expect(dynamoDBClient.putItem).toHaveBeenCalled();
+  });
+
+  it('warns when the ID is absent, so an upper-grade intake that should have one is visible', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    try {
+      const { svc } = makeServiceWithMocks({ emisSchoolCode: '31012345' });
+      await svc.createStudent(studentDtoBase as any, ctx);
+
+      const messages = warn.mock.calls.map(c => String(c[0])).join('\n');
+      expect(messages).toContain('without emisStudentId');
+      expect(messages).toContain('Flash II');
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('passes the gate when school is IEMIS-registered AND emisStudentId is supplied', async () => {
@@ -133,20 +146,20 @@ describe('StudentsService.createStudent — IEMIS student-ID gate (S1.4)', () =>
     expect(identityClient.getSchool).toHaveBeenCalledTimes(1);
   });
 
-  it('refuses even when other ID fields (studentNumber, stateStudentId) are present — the gate is specifically about emisStudentId', async () => {
+  // #481 — likewise inverted. Other identifiers were never a substitute for
+  // the IEMIS ID, and they are still not; the point is simply that their
+  // presence or absence no longer decides whether enrolment is possible.
+  it('creates regardless of other ID fields when emisStudentId is absent', async () => {
     const { svc, dynamoDBClient } = makeServiceWithMocks({ emisSchoolCode: '31012345' });
 
     const dto = {
       ...studentDtoBase,
       studentNumber: 'WHS-2026-00001',
       stateStudentId: 'STATE-123',
-      // no emisStudentId
+      // no emisStudentId — issued by CEHRD after Flash I
     };
 
-    await expect(svc.createStudent(dto as any, ctx)).rejects.toMatchObject({
-      status: 400,
-      response: expect.objectContaining({ errorCode: 'EMIS_STUDENT_ID_REQUIRED' }),
-    });
-    expect(dynamoDBClient.putItem).not.toHaveBeenCalled();
+    await expect(svc.createStudent(dto as any, ctx)).resolves.toBeDefined();
+    expect(dynamoDBClient.putItem).toHaveBeenCalled();
   });
 });
