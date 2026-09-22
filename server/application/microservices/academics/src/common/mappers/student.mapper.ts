@@ -250,7 +250,17 @@ export function updateStudentDtoToEntity(dto: UpdateStudentDto): Partial<Student
   
   if (dto.specialPrograms !== undefined) updates.specialPrograms = dto.specialPrograms;
   if (dto.accommodations !== undefined) updates.accommodations = dto.accommodations;
-  
+
+  // #480 — the IEMIS student ID is issued by CEHRD *after* Flash I, so
+  // recording it later is the normal lifecycle, not a remediation path. This
+  // allow-list previously omitted it, so a PATCH carrying the field returned
+  // 200 and changed nothing.
+  //
+  // `updateStudent` must enforce write-once, tenant uniqueness and the GSI7
+  // sparse-index keys before this value is persisted. Passing it through here
+  // without those is precisely the defect #480 describes.
+  if (dto.emisStudentId !== undefined) updates.emisStudentId = sanitizeField(dto.emisStudentId);
+
   return updates;
 }
 

@@ -528,6 +528,47 @@ export class StudentsService {
       throw new NotFoundException('Student not found');
     }
 
+    // #480 — the IEMIS student ID became patchable in this change. It carries
+    // two invariants that previously existed only on the create path, and a
+    // third that is new.
+    //
+    // Write-once. CEHRD issues the ID after Flash I, so `null -> value` is the
+    // normal lifecycle and must work. Re-pointing a pupil at a *different*
+    // federal record, or clearing one, is refused for the same reason
+    // `emisSchoolCode` is immutable (field-governance.ts): it detaches the
+    // student from their government record. Re-sending the same value stays
+    // idempotent. A mistyped ID is therefore permanent by design — if
+    // remediating one becomes a real need it belongs behind an audited
+    // system-admin override, not a silent overwrite here.
+    const patchedEmisId = updateStudentDto.emisStudentId;
+    if (patchedEmisId !== undefined && patchedEmisId !== student.emisStudentId) {
+      if (student.emisStudentId) {
+        throw new ConflictException({
+          message:
+            `emisStudentId is write-once and is already set on this student. ` +
+            `Existing=${student.emisStudentId}, requested=${patchedEmisId || '(cleared)'}.`,
+          errorCode: 'EMIS_STUDENT_ID_IMMUTABLE',
+          details: { field: 'emisStudentId', studentId },
+        });
+      }
+
+      // Tenant uniqueness — the same check `createStudent` runs, via the same
+      // GSI7 lookup. Without it the update path could mint a duplicate that
+      // create would have rejected, and CEHRD treats one ID as one pupil.
+      if (patchedEmisId) {
+        const existing = await this.findByEmisStudentId(
+          context.tenantId,
+          patchedEmisId,
+          context.jwtToken,
+        );
+        if (existing && existing.studentId !== studentId) {
+          throw new ConflictException(
+            `Student with emisStudentId=${patchedEmisId} already exists (studentId=${existing.studentId})`,
+          );
+        }
+      }
+    }
+
     // Convert DTO to entity fields using mapper
     const entityUpdates = updateStudentDtoToEntity(updateStudentDto);
     
@@ -572,6 +613,18 @@ export class StudentsService {
     values[':updatedBy'] = context.userId;
     values[':inc'] = 1;
     names['#version'] = 'version';
+
+    // #480 — GSI7 is a sparse index whose keys are derived attributes, written
+    // explicitly. The entity factory does this at create; without the same
+    // write here a student remediated through this path would carry the ID but
+    // be invisible to `findByEmisStudentId`, and so to IEMIS import dedup and
+    // to the uniqueness check above. Write-once means this only ever runs on
+    // the `null -> value` transition.
+    if (entityUpdates.emisStudentId) {
+      updates.push('gsi7pk = :gsi7pk', 'gsi7sk = :gsi7sk');
+      values[':gsi7pk'] = GSIKeyBuilder.emisStudent(context.tenantId, entityUpdates.emisStudentId);
+      values[':gsi7sk'] = `STUDENT#${studentId}`;
+    }
 
     // Update GSI keys if name changed
     if (entityUpdates.firstName || entityUpdates.lastName) {
