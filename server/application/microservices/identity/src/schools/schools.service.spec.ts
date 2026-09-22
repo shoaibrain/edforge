@@ -6,6 +6,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { SchoolsService } from './schools.service';
 import { BellScheduleService } from './bell-schedule.service';
+import { RolesService } from '../roles/roles.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { AuditedWriteService } from '../common/services/audited-write.service';
@@ -19,6 +20,7 @@ describe('SchoolsService', () => {
   let service: SchoolsService;
   let mockDynamoDBClient: any;
   let mockEventsService: any;
+  let mockRolesService: any;
 
   const mockContext: RequestContext = {
     userId: 'admin-user-id',
@@ -97,6 +99,10 @@ describe('SchoolsService', () => {
       batchWrite: jest.fn().mockResolvedValue(undefined),
     };
 
+    mockRolesService = {
+      getUserRoles: jest.fn().mockResolvedValue({ userId: 'user-1', globalRole: 'TenantUser', schoolRoles: [] }),
+    };
+
     mockEventsService = {
       publishSchoolCreated: jest.fn().mockResolvedValue(undefined),
       publishSchoolUpdated: jest.fn().mockResolvedValue(undefined),
@@ -124,6 +130,13 @@ describe('SchoolsService', () => {
           provide: BellScheduleService,
           useValue: { applyPreset: jest.fn().mockResolvedValue(undefined) },
         },
+        // #484 — school reads scope to the caller's role assignments.
+        // Default returns no assignments; a TenantAdmin context short-circuits
+        // before this is consulted, which is what the existing cases rely on.
+        {
+          provide: RolesService,
+          useValue: mockRolesService,
+        },
         {
           provide: SchoolsService,
           useFactory: (
@@ -131,8 +144,9 @@ describe('SchoolsService', () => {
             events: IdentityEventsService,
             audited: AuditedWriteService,
             bell: BellScheduleService,
-          ) => new SchoolsService(db, events, audited, bell),
-          inject: [DynamoDBClientService, IdentityEventsService, AuditedWriteService, BellScheduleService],
+            roles: RolesService,
+          ) => new SchoolsService(db, events, audited, bell, roles),
+          inject: [DynamoDBClientService, IdentityEventsService, AuditedWriteService, BellScheduleService, RolesService],
         },
       ],
     }).compile();

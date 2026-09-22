@@ -71,14 +71,28 @@ GET /users/:id/roles/:schoolId
 
 # ── Authenticated tenant-scoped reference reads ───────────────────────────────
 # Read-only, isolated to the caller's tenant via JWT claims. Reference/lookup
-# data an authenticated operator legitimately needs for school context.
-GET /schools
-GET /schools/:schoolId
+# data an authenticated principal legitimately needs for school context.
+#
+# CAUTION (#484): "tenant-scoped" is NOT by itself a sufficient justification.
+# A tenant may hold many schools, and its principals include Parents and
+# Students, not just operators. Before adding a read here, ask whether every
+# authenticated principal in a multi-school tenant may see EVERY row it
+# returns. GET /schools, GET /schools/:schoolId and .../configuration were
+# listed here on that reasoning and were disclosing other schools' government
+# IEMIS codes and contact details to any Parent; they now scope to the
+# caller's role assignments in SchoolsService and are listed below with the
+# service-layer enforcement group instead.
 GET /schools/:schoolId/activation-requirements
 GET /schools/:schoolId/branding
-GET /schools/:schoolId/configuration
 GET /schools/:schoolId/departments
 GET /schools/:schoolId/departments/:departmentId
+# Enforced in SchoolsService via role-assignment scoping (#484): TenantAdmin
+# is tenant-wide; every other principal sees only schools they are assigned
+# to. List filters the result set; the by-id reads throw Forbidden.
+GET /schools
+GET /schools/:schoolId
+GET /schools/:schoolId/configuration
+# Enforced in the handler: TenantAdmin, or Principal/VicePrincipal at the school.
 GET /schools/:schoolId/users
 GET /school-years
 GET /school-years/current
