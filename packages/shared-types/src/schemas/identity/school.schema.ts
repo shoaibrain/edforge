@@ -235,10 +235,14 @@ export const createSchoolSchema = z.object({
    * Required for PABSON tenants (enforced at service layer since archetype
    * lookup is not in Zod scope). Immutable after creation.
    *
-   * Format: 8–10 digits per `iemisSchoolCodeSchema` (S1.1). Loose
-   * `z.string().min(1).max(32)` was replaced 2026-04-23 to prevent
-   * malformed codes from landing in DDB — once a school is created with
-   * a bad code it cannot be corrected (immutable).
+   * Format: 8–10 digits per `iemisSchoolCodeSchema` (S1.1) — a loose
+   * cross-archetype guard. Loose `z.string().min(1).max(32)` was replaced
+   * 2026-04-23 to prevent malformed codes from landing in DDB — once a
+   * school is created with a bad code it cannot be corrected (immutable).
+   *
+   * PABSON requires exactly 9 digits (CEHRD's width). That is enforced in
+   * `SchoolsService.createSchool`, not here, because Zod cannot see the
+   * tenant's archetype and GENERIC must not inherit Nepal's format.
    */
   emisSchoolCode: iemisSchoolCodeSchema.optional(),
   name: z.string().min(2).max(100),

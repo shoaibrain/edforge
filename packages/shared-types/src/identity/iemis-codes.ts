@@ -4,15 +4,44 @@
  * Nepal's Integrated Educational Management Information System (IEMIS)
  * issues three identifier formats that EdForge treats as first-class:
  *
- *   - `emisSchoolCode`  — 8–10 digit code issued by the local municipality
- *                         to every school registered with CEHRD. Required
- *                         for schools reporting to IEMIS (PABSON archetype
- *                         in V1). Immutable post-first-save.
+ *   - `emisSchoolCode`  — code issued by the local municipality to every
+ *                         school registered with CEHRD. Required for schools
+ *                         reporting to IEMIS (PABSON archetype in V1).
+ *                         Immutable post-first-save. The regex here is a
+ *                         deliberately loose 8–10 digit cross-archetype
+ *                         format guard; CEHRD issues exactly 9 (encoding
+ *                         province/district/local-level/school) and that
+ *                         exact width is enforced for PABSON in
+ *                         `SchoolsService.createSchool`, where the archetype
+ *                         is known. Do not tighten it here — GENERIC and
+ *                         future governance bodies must not inherit Nepal's
+ *                         width.
  *   - `emisStudentId`   — 16 digit persistent student identifier issued
- *                         within IEMIS. Unique per tenant in EdForge;
- *                         cross-tenant collisions are intentional (a
- *                         student migrating between two EdForge tenants
- *                         retains their IEMIS ID in each).
+ *                         within IEMIS, after Flash I rather than at
+ *                         enrolment (see #481).
+ *
+ *                         The student ID is understood to CARRY the school's
+ *                         9-digit code, which is what makes 16 the right
+ *                         length (9 + a 7-digit serial). That relationship is
+ *                         why the school-code width above is load-bearing
+ *                         rather than cosmetic.
+ *
+ *                         Deliberately NOT validated as a prefix today. CEHRD
+ *                         does not publish the composition rule, and the
+ *                         behaviour on school transfer is unknown: if the ID
+ *                         follows the student, a transferred pupil's prefix
+ *                         encodes their ORIGINAL school and a check against
+ *                         the current one would reject exactly the cohort
+ *                         that legitimately arrives holding an ID. Implement
+ *                         prefix validation only once that rule is confirmed,
+ *                         and gate it on `isTransferred`.
+ *
+ *                         `emisStudentId` is enforced unique per tenant via
+ *                         GSI7. Note this is weaker than the identifier
+ *                         itself: an ID embedding a national school code is
+ *                         globally unique by construction, so a cross-tenant
+ *                         collision more likely indicates bad data than a
+ *                         genuine migration.
  *   - `emisStaffId`     — 16 digit persistent staff identifier issued
  *                         within IEMIS for reporting under CEHRD's Flash II
  *                         Staff module. Format mirrors `emisStudentId` in
