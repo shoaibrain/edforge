@@ -79,7 +79,7 @@ const METRICS_NAMESPACE = 'Edforge/Finance/BulkWorker';
 import type { RequestContext } from '../../common/entities/base.entity';
 import type { BulkGenerateInvoiceDto } from '@aibrains/shared-types';
 import type { AgreementResolutionMemo } from '../../agreements/agreement-resolver.service';
-import { createSiblingDiscountMemo } from '../../invoices/invoices.service';
+import { createSiblingDiscountMemo, createStudentGradeMemo } from '../../invoices/invoices.service';
 
 /**
  * The worker's input shape. Augmented from the controller's DTO with
@@ -306,6 +306,15 @@ export class BulkInvoiceGenerateWorker {
       // FB-5.2 — one sibling-discount memo per job: the sibling-rule list
       // is fetched once for the whole run instead of once per student.
       const siblingMemo = createSiblingDiscountMemo();
+      // #477 — grades for the whole job in one roster read, so the
+      // per-student applicability check adds no round trips to the loop.
+      const gradeMemo = createStudentGradeMemo();
+      await this.invoicesService.seedStudentGradeMemo(
+        input.schoolId,
+        input.resolvedStudentIds,
+        context,
+        gradeMemo,
+      );
 
       await withConcurrencyLimit(
         input.resolvedStudentIds,
@@ -326,6 +335,32 @@ export class BulkInvoiceGenerateWorker {
           // ── Generation step (outer try): a failure here is a real
           // per-student failure that should land in failedStudentIds.
           let generationSucceeded = false;
+
+          // Skip bookkeeping, shared by every reason a student is passed
+          // over (duplicate invoice, no fee applies to their grade). The
+          // counter write is best-effort: a race here is bookkeeping drift,
+          // not a student failure, so it is logged rather than thrown.
+          // #345 — `CounterWriteLatencyMs` covers the skip path with the
+          // same metric as the success path, including the F1 retry
+          // envelope inside incrementCounter.
+          const recordSkip = async (): Promise<void> => {
+            skipped++;
+            try {
+              await this.timeStage(
+                'CounterWriteLatencyMs',
+                stageDims,
+                () => this.jobsService.incrementCounter(jobId, 'skipped', 1, context),
+              );
+            } catch (counterErr: unknown) {
+              const counterMessage =
+                counterErr instanceof Error ? counterErr.message : String(counterErr);
+              this.logger.warn(
+                `BulkInvoiceGenerateWorker: skipped-counter increment failed jobId=${jobId} ` +
+                  `studentId=${studentId}: ${counterMessage.slice(0, 200)}`,
+              );
+            }
+          };
+
           try {
             // Duplicate detection (same shape the sync generateBulk uses).
             // #345 — `CheckDupLatencyMs`: DDB GetItem against the
@@ -343,28 +378,24 @@ export class BulkInvoiceGenerateWorker {
               ),
             );
             if (isDuplicate) {
-              skipped++;
-              // Skip-counter write is best-effort; a race here is bookkeeping
-              // drift, not a student failure, so it's logged separately.
-              // #345 — `CounterWriteLatencyMs` for the skip path; same
-              // metric as the success path so we see both in the same
-              // dashboard widget. The DDB UpdateItem under the hood
-              // includes the F1 retry-on-Conflict envelope so this is
-              // an end-to-end timing including any retries.
-              try {
-                await this.timeStage(
-                  'CounterWriteLatencyMs',
-                  stageDims,
-                  () => this.jobsService.incrementCounter(jobId, 'skipped', 1, context),
-                );
-              } catch (counterErr: unknown) {
-                const counterMessage =
-                  counterErr instanceof Error ? counterErr.message : String(counterErr);
-                this.logger.warn(
-                  `BulkInvoiceGenerateWorker: skipped-counter increment failed jobId=${jobId} ` +
-                    `studentId=${studentId}: ${counterMessage.slice(0, 200)}`,
-                );
-              }
+              await recordSkip();
+              return;
+            }
+
+            // #477 — narrow the requested fees to the ones this student's
+            // grade allows. A cohort selection means "bill each student what
+            // applies to them", so an inapplicable fee is dropped rather than
+            // failing the student; a student with nothing applicable is a
+            // skip, recorded exactly like a duplicate.
+            const applicableFeeIds = await this.invoicesService.resolveApplicableFeeIds(
+              input.schoolId,
+              studentId,
+              feeStructures,
+              context,
+              gradeMemo,
+            );
+            if (applicableFeeIds === null) {
+              await recordSkip();
               return;
             }
 
@@ -385,7 +416,7 @@ export class BulkInvoiceGenerateWorker {
                     input.schoolId,
                     {
                       studentId,
-                      feeStructureIds: input.feeStructureIds,
+                      feeStructureIds: applicableFeeIds,
                       academicYear: input.academicYear,
                       billingPeriod: input.billingPeriod,
                       dueDate: input.dueDate,
@@ -394,6 +425,7 @@ export class BulkInvoiceGenerateWorker {
                       preAllocatedInvoiceNumber,
                       cachedSchoolName,
                       cachedCurrency,
+                      gradeLevel: gradeMemo.get(studentId) ?? undefined,
                     } as any,
                     context,
                     agreementMemo,

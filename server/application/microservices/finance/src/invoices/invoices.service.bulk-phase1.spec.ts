@@ -76,6 +76,10 @@ function buildService(overrides: Record<string, any> = {}) {
     }),
     getSchoolName: jest.fn().mockResolvedValue('Test School'),
     getStudentIdsByGrade: jest.fn().mockResolvedValue([STUDENT_ID, STUDENT_ID_2, STUDENT_ID_3]),
+    // #477 — bulk seeds grades from one roster read. Empty here so these
+    // cases keep exercising the per-student fallback they were written
+    // against; the fee structures are unscoped, so nothing is filtered.
+    getStudentGradesBySchool: jest.fn().mockResolvedValue(new Map()),
   };
   const feeStructuresService = {
     getByIds: jest.fn().mockResolvedValue([makeFeeStructure()]),

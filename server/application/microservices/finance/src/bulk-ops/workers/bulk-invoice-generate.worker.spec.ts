@@ -83,6 +83,9 @@ interface MockCollaborators {
     checkDuplicateInvoice: jest.Mock;
     generateForBulkWorker: jest.Mock;
     issue: jest.Mock;
+    // #477 — per-student grade narrowing.
+    resolveApplicableFeeIds: jest.Mock;
+    seedStudentGradeMemo: jest.Mock;
   };
   sequenceService: {
     incrementSequenceBy: jest.Mock;
@@ -134,6 +137,14 @@ function makeWorker(overrides: Partial<{
     checkDuplicateInvoice: jest.fn().mockResolvedValue(false),
     generateForBulkWorker: jest.fn().mockResolvedValue({}),
     issue: jest.fn(),
+    // #477 — the worker narrows the fee set per student before generating.
+    // Default is a pass-through (every requested fee applies to every
+    // student), which is the pre-#477 shape these Sprint E.4 cases assert.
+    resolveApplicableFeeIds: jest.fn(
+      async (_schoolId: string, _studentId: string, feeStructures: Array<{ feeStructureId: string }>) =>
+        feeStructures.map(f => f.feeStructureId),
+    ),
+    seedStudentGradeMemo: jest.fn().mockResolvedValue(undefined),
     ...overrides.invoicesService,
   };
   const sequenceService = {
@@ -421,6 +432,59 @@ describe('BulkInvoiceGenerateWorker — Sprint E.4', () => {
     const generatedIds = generateCalls.map((c: any) => c[1].studentId);
     expect(generatedIds).not.toContain(dupId);
     expect(generatedIds).toHaveLength(3);
+
+    const skippedCalls = mocks.jobsService.incrementCounter.mock.calls.filter(
+      (c: any) => c[1] === 'skipped',
+    );
+    expect(skippedCalls).toHaveLength(1);
+  });
+
+  // #477 — the async worker is the path any real cohort run takes (the
+  // sync fork is capped at BULK_SYNC_THRESHOLD, default 25), and it had no
+  // grade check at all. A student whose grade excludes every requested fee
+  // is a skip, recorded exactly like a duplicate; a student for whom only
+  // some apply is billed the narrowed set, never the full catalog.
+  it('grade applicability: bills the narrowed fee set and skips students nothing applies to', async () => {
+    const noneApplyId = 'student-1';
+    const { worker, mocks } = makeWorker({
+      feeStructuresService: {
+        getByIds: jest
+          .fn()
+          .mockResolvedValue([{ feeStructureId: 'fs-g2' }, { feeStructureId: 'fs-g3' }]),
+      },
+      invoicesService: {
+        resolveApplicableFeeIds: jest.fn(
+          async (
+            _schoolId: string,
+            studentId: string,
+            feeStructures: Array<{ feeStructureId: string }>,
+          ) => (studentId === noneApplyId ? null : [feeStructures[0].feeStructureId]),
+        ),
+      },
+    });
+
+    await worker.run(
+      JOB_ID,
+      {
+        schoolId: SCHOOL,
+        resolvedStudentIds: studentIds(4),
+        feeStructureIds: ['fs-g2', 'fs-g3'],
+        academicYear: '2026-2027',
+        billingPeriod: '2026-07',
+        dueDate: '2026-08-15',
+      } as any,
+      ctx(),
+    );
+
+    const generateCalls = mocks.invoicesService.generateForBulkWorker.mock.calls;
+    const generatedIds = generateCalls.map((c: any) => c[1].studentId);
+    expect(generatedIds).not.toContain(noneApplyId);
+    expect(generatedIds).toHaveLength(3);
+
+    // Each generated student got only the applicable subset, not both fees.
+    for (const call of generateCalls) {
+      expect(call[1].feeStructureIds).toEqual(['fs-g2']);
+    }
 
     const skippedCalls = mocks.jobsService.incrementCounter.mock.calls.filter(
       (c: any) => c[1] === 'skipped',
