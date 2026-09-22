@@ -8,12 +8,14 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
 import { AuditedWriteService } from '../common/services/audited-write.service';
 import { BellScheduleService } from './bell-schedule.service';
+import { RolesService } from '../roles/roles.service';
 import { 
   School, 
   createSchoolEntity,
@@ -158,7 +160,54 @@ export class SchoolsService {
     private readonly eventsService: IdentityEventsService,
     private readonly auditedWrite: AuditedWriteService,
     private readonly bellScheduleService: BellScheduleService,
+    private readonly rolesService: RolesService,
   ) {}
+
+  /**
+   * #484 — which schools this caller may read.
+   *
+   * `null` means no restriction: a `TenantAdmin` is tenant-wide by
+   * definition. Everyone else sees only the schools they hold an active
+   * role assignment at. A caller with no assignments gets an empty set,
+   * not an escape hatch.
+   *
+   * Deliberately built on `RolesService.getUserRoles`, which drops expired
+   * assignments — `getRole` does not, so resolving the list and the by-id
+   * checks from the same source keeps them from drifting. Per-route
+   * reasoning is what left these reads unguarded in the first place.
+   */
+  private async resolveReadableSchoolIds(
+    context: RequestContext,
+  ): Promise<Set<string> | null> {
+    if (context.globalRole === 'TenantAdmin') return null;
+
+    const roles = await this.rolesService.getUserRoles(context.userId, context);
+    return new Set((roles.schoolRoles ?? []).map(r => r.schoolId));
+  }
+
+  /**
+   * #484 — refuse a read of a school the caller holds no assignment at.
+   *
+   * Forbidden rather than NotFound: tenant isolation already holds upstream,
+   * so the row is known to be in the caller's own tenant and hiding its
+   * existence buys nothing while making a legitimate misconfiguration much
+   * harder to debug. Mirrors `GET /schools/:schoolId/users`.
+   */
+  private async assertSchoolReadable(
+    schoolId: string,
+    context: RequestContext,
+  ): Promise<void> {
+    const readable = await this.resolveReadableSchoolIds(context);
+    if (readable === null || readable.has(schoolId)) return;
+
+    this.logger.warn(
+      `School read denied — no active assignment. tenantId=${context.tenantId} ` +
+        `schoolId=${schoolId} actor=${context.userId} globalRole=${context.globalRole}`,
+    );
+    throw new ForbiddenException(
+      'Requires TenantAdmin, or a role assignment at this school',
+    );
+  }
 
   /**
    * Create a new school
@@ -496,6 +545,10 @@ export class SchoolsService {
     schoolId: string,
     context: RequestContext
   ): Promise<SchoolResponseDto> {
+    // #484 — scoping the listing alone would only downgrade the disclosure
+    // to "needs an id", and ids are not secrets.
+    await this.assertSchoolReadable(schoolId, context);
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const school = await this.dynamoDBClient.getItem<School>(
       client,
@@ -560,9 +613,17 @@ export class SchoolsService {
         : undefined;
     } while (exclusiveStartKey);
 
+    // #484 — scope to the caller's assignments BEFORE paginating, so `limit`
+    // and `hasMore` describe what this caller may actually see. Filtering
+    // after the slice would leak the existence of other schools through the
+    // counts even while withholding their rows.
+    const readable = await this.resolveReadableSchoolIds(context);
+    const visibleSchools =
+      readable === null ? allSchools : allSchools.filter(s => readable.has(s.schoolId));
+
     // Application-level pagination
-    const hasMore = allSchools.length > limit;
-    const returnSchools = hasMore ? allSchools.slice(0, limit) : allSchools;
+    const hasMore = visibleSchools.length > limit;
+    const returnSchools = hasMore ? visibleSchools.slice(0, limit) : visibleSchools;
 
     return {
       items: returnSchools.map(s => schoolEntityToDto(s)),
@@ -1428,6 +1489,9 @@ export class SchoolsService {
     schoolId: string,
     context: RequestContext
   ): Promise<SchoolConfigResponseDto> {
+    // #484 — same scope as the school record it belongs to.
+    await this.assertSchoolReadable(schoolId, context);
+
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const config = await this.dynamoDBClient.getItem<SchoolConfiguration>(
       client,

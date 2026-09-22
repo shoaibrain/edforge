@@ -23,6 +23,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { SchoolsService } from '../schools/schools.service';
 import { BellScheduleService } from '../schools/bell-schedule.service';
+import { RolesService } from '../roles/roles.service';
 import { AcademicYearsService } from '../academic-years/academic-years.service';
 import { DynamoDBClientService } from '../common/services/dynamodb-client.service';
 import { IdentityEventsService } from '../common/services/identity-events.service';
@@ -154,6 +155,13 @@ describe('C0.a.1 — calendarType source-of-truth (cross-service)', () => {
           provide: BellScheduleService,
           useValue: { applyPreset: jest.fn().mockResolvedValue(undefined) },
         },
+        // #484 — school reads scope to role assignments. These suites run as
+        // TenantAdmin, which short-circuits before the lookup; provided so the
+        // constructor resolves.
+        {
+          provide: RolesService,
+          useValue: { getUserRoles: jest.fn().mockResolvedValue({ schoolRoles: [] }) },
+        },
         {
           provide: SchoolsService,
           useFactory: (
@@ -161,8 +169,9 @@ describe('C0.a.1 — calendarType source-of-truth (cross-service)', () => {
             events: IdentityEventsService,
             audited: AuditedWriteService,
             bell: BellScheduleService,
-          ) => new SchoolsService(db, events, audited, bell),
-          inject: [DynamoDBClientService, IdentityEventsService, AuditedWriteService, BellScheduleService],
+            roles: RolesService,
+          ) => new SchoolsService(db, events, audited, bell, roles),
+          inject: [DynamoDBClientService, IdentityEventsService, AuditedWriteService, BellScheduleService, RolesService],
         },
         {
           provide: AcademicYearsService,
