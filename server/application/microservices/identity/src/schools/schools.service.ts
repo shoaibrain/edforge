@@ -333,6 +333,41 @@ export class SchoolsService {
       });
     }
 
+    // CEHRD issues exactly 9 digits (province/district/local-level/school).
+    // The shared `iemisSchoolCodeSchema` stays deliberately loose at 8–10: it
+    // is a cross-archetype format guard, and Nepal's width is not a rule the
+    // GENERIC archetype — or a future governance body such as CBS or an
+    // NGO-run body — should inherit. So the exact width is enforced HERE,
+    // where the archetype is known, alongside the presence check above.
+    //
+    // Width is load-bearing, not cosmetic. The IEMIS student ID is a 16-digit
+    // identifier that carries the school's code, so a code of any other
+    // length cannot produce a well-formed student ID for that school. The
+    // Flash export validator already warns on a non-9-digit code
+    // (reporting-snapshot.service.ts) — this stops one being created in the
+    // first place, which matters because the field is immutable and a bad
+    // code today can only be undone by deleting the school.
+    const pabsonCode: string | undefined = createDto.emisSchoolCode;
+    if (archetype === 'PABSON' && pabsonCode && !/^\d{9}$/.test(pabsonCode)) {
+      this.logger.warn(
+        `PABSON create rejected — emisSchoolCode is not 9 digits. ` +
+          `tenantId=${context.tenantId} code=${pabsonCode} actor=${context.userId}`,
+      );
+      throw new BadRequestException({
+        message: 'emisSchoolCode must be exactly 9 digits for PABSON tenants',
+        errorCode: 'EMIS_CODE_INVALID_WIDTH',
+        details: {
+          archetype: 'PABSON',
+          field: 'emisSchoolCode',
+          reason:
+            'CEHRD issues 9-digit IEMIS school codes encoding province, ' +
+            'district, local level and school. The code is immutable once ' +
+            'saved, and the 16-digit IEMIS student ID carries it, so a code ' +
+            'of another length cannot produce valid student IDs for this school.',
+        },
+      });
+    }
+
     // Sprint 1 S1.3 — cross-tenant IEMIS School Code uniqueness.
     //
     // An IEMIS School Code is issued by the local municipality to exactly

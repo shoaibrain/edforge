@@ -292,7 +292,7 @@ describe('SchoolsService', () => {
       timezone: 'Asia/Kathmandu',
       locale: 'ne-NP',
       academicCalendarType: 'annual',
-      emisSchoolCode: '31099999',
+      emisSchoolCode: '310999990',
     } as CreateSchoolDto;
 
     const persistedSchoolFor = (schoolCode: string) =>
@@ -323,7 +323,7 @@ describe('SchoolsService', () => {
         schoolType: 'high',
         gradeRange: { start: '9', end: '10' },
         address: { street1: '1 Bagmati Rd', municipality: 'Kathmandu', district: 'Kathmandu', province: 'Bagmati Province', country: 'NPL' },
-        emisSchoolCode: '31099998',
+        emisSchoolCode: '310999980',
         // calendarSystem / timezone / locale / academicCalendarType intentionally omitted
       });
       // The pipe must NOT fill these — otherwise the service derivation is masked.
@@ -471,11 +471,11 @@ describe('SchoolsService', () => {
       mockDynamoDBClient.putItem.mockResolvedValue(undefined);
 
       const result = await service.createSchool(
-        { ...pabsonDto, emisSchoolCode: '31012345' } as CreateSchoolDto,
+        { ...pabsonDto, emisSchoolCode: '310123450' } as CreateSchoolDto,
         pabsonContext,
       );
       expect(result.schoolCode).toBe('MES');
-      expect(result.emisSchoolCode).toBe('31012345');
+      expect(result.emisSchoolCode).toBe('310123450');
       expect(mockEventsService.publishSchoolCreated).toHaveBeenCalled();
     });
 
@@ -527,7 +527,7 @@ describe('SchoolsService', () => {
       locale: 'ne-NP',
       academicCalendarType: 'annual',
       calendarSystem: 'bikram_sambat',
-      emisSchoolCode: '31012345',
+      emisSchoolCode: '310123450',
     } as CreateSchoolDto;
 
     it('queries GSI8 for the IEMIS code before writing the school', async () => {
@@ -541,7 +541,7 @@ describe('SchoolsService', () => {
       expect(mockDynamoDBClient.queryGSI).toHaveBeenCalledWith(
         expect.anything(),
         'GSI8',
-        '31012345',
+        '310123450',
       );
     });
 
@@ -558,7 +558,7 @@ describe('SchoolsService', () => {
     it('throws 409 DUPLICATE_IEMIS_CODE when code already exists on another tenant', async () => {
       mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
       mockDynamoDBClient.queryGSI.mockResolvedValue({
-        items: [{ tenantId: 'tenant-other', schoolId: 'school-xyz', emisSchoolCode: '31012345' }],
+        items: [{ tenantId: 'tenant-other', schoolId: 'school-xyz', emisSchoolCode: '310123450' }],
       });
       mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'PABSON' });
 
@@ -576,7 +576,7 @@ describe('SchoolsService', () => {
     it('409 response must NOT leak the conflicting tenantId / schoolId to the caller', async () => {
       mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
       mockDynamoDBClient.queryGSI.mockResolvedValue({
-        items: [{ tenantId: 'secret-other-tenant', schoolId: 'secret-sid', emisSchoolCode: '31012345' }],
+        items: [{ tenantId: 'secret-other-tenant', schoolId: 'secret-sid', emisSchoolCode: '310123450' }],
       });
       mockDynamoDBClient.getItem.mockResolvedValue({ archetype: 'PABSON' });
 
@@ -603,7 +603,7 @@ describe('SchoolsService', () => {
       );
       expect(schoolPut).toBeDefined();
       const persisted = schoolPut![1];
-      expect(persisted.gsi8pk).toBe('31012345');
+      expect(persisted.gsi8pk).toBe('310123450');
       expect(persisted.gsi8sk).toMatch(/^TENANT#tenant-a#SCHOOL#/);
     });
 
@@ -646,20 +646,20 @@ describe('SchoolsService', () => {
     it('rejects PATCH with emisSchoolCode — BadRequestException lists the field', async () => {
       mockDynamoDBClient.getItem.mockResolvedValue({
         ...mockSchool,
-        emisSchoolCode: '31012345',
+        emisSchoolCode: '310123450',
       });
 
       await expect(
         service.updateSchool(
           'school-123',
-          { emisSchoolCode: '99999999' } as UpdateSchoolDto,
+          { emisSchoolCode: '999999990' } as UpdateSchoolDto,
           mockContext,
         ),
       ).rejects.toThrow(BadRequestException);
       await expect(
         service.updateSchool(
           'school-123',
-          { emisSchoolCode: '99999999' } as UpdateSchoolDto,
+          { emisSchoolCode: '999999990' } as UpdateSchoolDto,
           mockContext,
         ),
       ).rejects.toThrow(/emisSchoolCode/);
@@ -671,12 +671,12 @@ describe('SchoolsService', () => {
     it('allows PATCH of mutable fields even on a school with emisSchoolCode set', async () => {
       mockDynamoDBClient.getItem.mockResolvedValue({
         ...mockSchool,
-        emisSchoolCode: '31012345',
+        emisSchoolCode: '310123450',
       });
       mockDynamoDBClient.query.mockResolvedValue({ items: [], hasMore: false });
       mockDynamoDBClient.updateItem.mockResolvedValue({
         ...mockSchool,
-        emisSchoolCode: '31012345',
+        emisSchoolCode: '310123450',
         name: 'Renamed School',
       });
       // updateSchool fires a non-blocking audit-log putItem + event publish.
@@ -868,7 +868,7 @@ describe('SchoolsService', () => {
           province: 'Bagmati',
         },
         calendarSystem: 'bikram_sambat',
-        emisSchoolCode: '31012345',
+        emisSchoolCode: '310123450',
       };
 
       await service.createSchool(nplDto, mockContext);
@@ -946,7 +946,7 @@ describe('SchoolsService', () => {
           district: 'Jhapa',
           province: 'Bagmati',
         },
-        emisSchoolCode: '31099999',
+        emisSchoolCode: '310999990',
       };
       delete (nplDto as any).calendarSystem; // exercise the service's NPL fallback
 
@@ -1787,7 +1787,7 @@ describe('SchoolsService', () => {
 
     it('PABSON: applyPreset called once with type=academic, isDefault=true', async () => {
       setupCreate('PABSON');
-      await service.createSchool({ ...validCreate, emisSchoolCode: '12345678' }, mockContext);
+      await service.createSchool({ ...validCreate, emisSchoolCode: '123456780' }, mockContext);
       const bellStub = (service as any).bellScheduleService;
       expect(bellStub.applyPreset).toHaveBeenCalledTimes(1);
       expect(bellStub.applyPreset).toHaveBeenCalledWith(
@@ -1811,7 +1811,7 @@ describe('SchoolsService', () => {
       const warnSpy = jest.spyOn((service as any).logger, 'warn');
 
       const result = await service.createSchool(
-        { ...validCreate, emisSchoolCode: '12345678' },
+        { ...validCreate, emisSchoolCode: '123456780' },
         mockContext,
       );
 
