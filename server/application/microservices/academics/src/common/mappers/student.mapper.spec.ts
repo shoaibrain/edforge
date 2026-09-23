@@ -460,3 +460,136 @@ describe('student.mapper — guardian PII (D-1)', () => {
     expect(g.occupation).toBe('Engineer');
   });
 });
+
+// ============================================================
+// Nepal-aware address fields — the WRITE direction (DTO -> entity)
+// ============================================================
+// The Sprint A.21 block above locks the read direction and passes, which is
+// why this gap survived: it starts from an entity that already carries the
+// four fields and only exercises `studentEntityToDto`. Nothing asserted that
+// they ever got INTO the entity, and `mapAddressDtoToEntity` allow-listed the
+// six US keys, so every Nepali address submitted through the API was written
+// to DynamoDB without the part that identifies the location.
+//
+// A Nepali address is municipality + ward; most have no street name. Dropping
+// these four is not losing an embellishment, it is losing the address.
+describe('createStudentDtoToEntity — Nepal address fields reach the entity', () => {
+  const nepaliAddress = {
+    street1: 'Tole-12',
+    city: '',
+    state: '',
+    zipCode: '',
+    country: 'NPL',
+    wardNumber: '9',
+    municipality: 'Kshireshwarnath',
+    district: 'Dhanusha',
+    province: 'Madhesh',
+  };
+
+  function withAddress(address: Record<string, unknown>): CreateStudentDto {
+    return { ...baseDto([]), contactInfo: { address } } as unknown as CreateStudentDto;
+  }
+
+  it('persists all four Nepal fields from the create DTO', () => {
+    const entity = createStudentDtoToEntity(withAddress(nepaliAddress));
+
+    expect(entity.address).toMatchObject({
+      wardNumber: '9',
+      municipality: 'Kshireshwarnath',
+      district: 'Dhanusha',
+      province: 'Madhesh',
+    });
+  });
+
+  it('keeps the legacy US fields working', () => {
+    const entity = createStudentDtoToEntity(
+      withAddress({ street1: '12 Main St', city: 'Austin', state: 'TX', zipCode: '73301', country: 'USA' }),
+    );
+
+    expect(entity.address).toMatchObject({
+      street1: '12 Main St',
+      city: 'Austin',
+      state: 'TX',
+      zipCode: '73301',
+      country: 'USA',
+    });
+  });
+
+  it('survives a street-less Nepali address, which is the common shape', () => {
+    // The pilot's own IEMIS data looks like "Kshireshwarnath-9, Dhanusha" —
+    // ward and municipality, no street. Whether the API should accept that at
+    // all is a separate question; if it does, the fields must land.
+    const entity = createStudentDtoToEntity(
+      withAddress({ ...nepaliAddress, street1: undefined }),
+    );
+
+    expect(entity.address?.municipality).toBe('Kshireshwarnath');
+    expect(entity.address?.wardNumber).toBe('9');
+  });
+
+  it('leaves the fields undefined rather than empty when absent', () => {
+    const entity = createStudentDtoToEntity(
+      withAddress({ street1: '12 Main St', city: 'Austin', state: 'TX', zipCode: '73301' }),
+    );
+
+    expect(entity.address?.municipality).toBeUndefined();
+    expect(entity.address?.province).toBeUndefined();
+  });
+});
+
+describe('updateStudentDtoToEntity — Nepal address fields survive a PATCH', () => {
+  it('writes the four fields on an address update', () => {
+    // Same mapper, second caller. An operator correcting an address after
+    // enrolment hit the identical drop.
+    const updates = updateStudentDtoToEntity({
+      contactInfo: {
+        address: {
+          street1: 'Tole-4',
+          city: '',
+          state: '',
+          zipCode: '',
+          country: 'NPL',
+          wardNumber: '3',
+          municipality: 'Lalitpur Metropolitan City',
+          district: 'Lalitpur',
+          province: 'Bagmati',
+        },
+      },
+    } as never);
+
+    expect(updates.address).toMatchObject({
+      wardNumber: '3',
+      municipality: 'Lalitpur Metropolitan City',
+      district: 'Lalitpur',
+      province: 'Bagmati',
+    });
+  });
+});
+
+describe('mapGuardianDtoToEntity — a guardian address is mapped by the same function', () => {
+  it('carries the Nepal fields onto a guardian address', () => {
+    const dto = baseDto([
+      baseGuardian({
+        address: {
+          street1: 'Tole-7',
+          city: '',
+          state: '',
+          zipCode: '',
+          country: 'NPL',
+          wardNumber: '7',
+          municipality: 'Bharatpur',
+          district: 'Chitwan',
+          province: 'Bagmati',
+        },
+      } as never),
+    ]);
+
+    const entity = createStudentDtoToEntity(dto);
+
+    expect(entity.guardians?.[0]?.address).toMatchObject({
+      wardNumber: '7',
+      municipality: 'Bharatpur',
+      district: 'Chitwan',
+    });
+  });
+});
