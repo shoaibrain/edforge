@@ -142,40 +142,34 @@ export class StudentsService {
       ? await schoolCache.getSchool(createStudentDto.schoolId, identityContext)
       : await this.identityClient.getSchool(createStudentDto.schoolId, identityContext);
 
-    // Sprint 1 S1.4 — IEMIS-registered schools require IEMIS student IDs.
+    // #481 — the IEMIS student ID is NOT required at create.
     //
-    // Rule: if the school is itself registered with IEMIS (school-level
-    // `emisSchoolCode` is set — per-school proxy for "this school reports
-    // to CEHRD"), every student created on that school MUST carry an
-    // IEMIS student ID. This is tenant-archetype-agnostic and scales
-    // naturally: any future archetype that has IEMIS-like compliance
-    // will manifest as a populated `emisSchoolCode` and automatically
-    // inherit the gate without code changes.
+    // Sprint 1 S1.4 originally rejected any student at an IEMIS-registered
+    // school that arrived without one. That enforced a real CEHRD rule at the
+    // wrong point in the lifecycle. CEHRD issues the student IEMIS ID *after*
+    // Flash I: the intake template marks `student_iemis_id` optional
+    // ("blank for new ECED/Grade 1 intakes"), and only Flash II, at year end,
+    // marks it required. Student creation happens before Flash I, so the gate
+    // demanded an identifier at the one moment it provably cannot exist — and
+    // since every PABSON school carries an `emisSchoolCode`, it blocked the
+    // largest intake cohort of every school year from being enrolled at all.
     //
-    // Format validation (16 digits) is already enforced by Zod via
-    // `iemisStudentIdSchema` on the DTO. This gate just catches the
-    // "field omitted entirely" case that Zod allows because the field
-    // is .optional() at the schema level.
+    // Enforcement now lives where the rule actually bites: the Flash II
+    // generator counts rows missing the ID so the operator can fix them
+    // before CEHRD rejects the upload. Recording the ID later is a normal
+    // PATCH (#480), write-once once set.
+    //
+    // A student who *should* already have one — an upper-grade intake or a
+    // transfer — is still worth surfacing, so this warns rather than blocks.
     if (school.emisSchoolCode && !createStudentDto.emisStudentId) {
       this.logger.warn(
-        `Student create rejected — missing emisStudentId on IEMIS-registered school. ` +
+        `Student created without emisStudentId at an IEMIS-registered school. ` +
+          `Expected for new ECED/Grade 1 intakes; CEHRD issues the ID after ` +
+          `Flash I. Record it before the Flash II export. ` +
           `tenantId=${context.tenantId} schoolId=${createStudentDto.schoolId} ` +
-          `emisSchoolCode=${school.emisSchoolCode} actor=${context.userId}`,
+          `emisSchoolCode=${school.emisSchoolCode} ` +
+          `gradeLevel=${createStudentDto.currentGradeLevel} actor=${context.userId}`,
       );
-      throw new BadRequestException({
-        message: 'emisStudentId is required for students at IEMIS-registered schools',
-        errorCode: 'EMIS_STUDENT_ID_REQUIRED',
-        details: {
-          field: 'emisStudentId',
-          schoolId: createStudentDto.schoolId,
-          reason:
-            'This school is registered with IEMIS (emisSchoolCode=' +
-            school.emisSchoolCode +
-            '). Every student must carry a 16-digit IEMIS student ID so ' +
-            'the school can be reported to CEHRD correctly. The ID is ' +
-            'issued by the local municipality and cannot be auto-generated.',
-        },
-      });
     }
 
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);

@@ -326,6 +326,18 @@ export async function handler(
           note: 'Sprint C5+C6+C7 gating per V1 master plan §A.2',
         });
       }
+      // #481 — student_iemis_id is required on Flash II and CEHRD rejects the
+      // whole upload if any row is missing one. Creation no longer demands the
+      // ID (it does not exist until after Flash I), so this is the enforcement
+      // point.
+      if (out.missingEmisStudentIdCount > 0) {
+        log('warn', 'flash-ii: rows missing student_iemis_id — CEHRD will reject this upload', {
+          missing: out.missingEmisStudentIdCount,
+          of: out.rowCount,
+          sample: out.missingEmisStudentIdSample,
+          remedy: 'Record each student IEMIS ID (PATCH /academics/students/:id) and regenerate.',
+        });
+      }
     }
 
     const s3Key = buildS3Key(detail);
