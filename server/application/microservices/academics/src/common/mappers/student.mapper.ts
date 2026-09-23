@@ -377,6 +377,14 @@ function mapAddressDtoToEntity(dto: any): EntityAddress {
     state: sanitizeField(dto.state)!,
     zipCode: dto.zipCode,
     country: sanitizeField(dto.country),
+
+    // Nepal extension fields (Sprint A.1). Omitting them here discarded the
+    // only part of a PABSON address that identifies a location: a Nepali
+    // address is municipality + ward, and most have no street name at all.
+    wardNumber: sanitizeField(dto.wardNumber),
+    municipality: sanitizeField(dto.municipality),
+    district: sanitizeField(dto.district),
+    province: sanitizeField(dto.province),
   };
 }
 
