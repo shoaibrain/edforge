@@ -101,6 +101,11 @@ export class LambdaService extends Construct {
         // The single-file bundle cannot resolve the PDF renderer's fonts
         // relative to its own file; build-lambda.sh ships them beside index.js.
         PDF_FONT_DIR: '/var/task/fonts',
+        // StructuredLogger keys `isDevelopment` off this; unset means the
+        // functions emit human-readable output and every debug()/verbose()
+        // line in production. Last in the literal so a service-info.json
+        // value cannot override it.
+        NODE_ENV: 'production',
       },
       layers: props.layers,
       logRetention: logs.RetentionDays.ONE_MONTH,

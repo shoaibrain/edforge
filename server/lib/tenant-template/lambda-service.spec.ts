@@ -40,6 +40,7 @@ describe('LambdaService (C1.6)', () => {
         Variables: Match.objectLike({
           EDFORGE_RUNTIME: 'lambda',
           PDF_FONT_DIR: '/var/task/fonts',
+          NODE_ENV: 'production',
           TABLE_NAME: 'edforge-identity-basic',
           IAM_ROLE_ARN: 'arn:aws:iam::111111111111:role/abac',
         }),
@@ -84,6 +85,21 @@ describe('LambdaService (C1.6)', () => {
     expect(fn.Properties.Environment.Variables.AWS_REGION).toBeUndefined();
     expect(fn.Properties.Environment.Variables.COGNITO_USER_POOL_ID).toBe('ap-south-1_POOL');
     expect(fn.Properties.Environment.Variables.EDFORGE_RUNTIME).toBe('lambda');
+    expect(fn.Properties.Environment.Variables.NODE_ENV).toBe('production');
+  });
+
+  it("pins NODE_ENV=production over a passed-in value — StructuredLogger's isDevelopment switch must not be settable from service-info.json", () => {
+    const asset = fs.mkdtempSync(path.join(os.tmpdir(), 'edforge-lambda-asset-'));
+    fs.writeFileSync(path.join(asset, 'index.js'), 'exports.handler = async () => ({ statusCode: 200 });');
+    const app = new App();
+    const stack = new Stack(app, 'T', { env: { account: '111111111111', region: 'ap-south-1' } });
+    new LambdaService(stack, 'identity-Lambda', {
+      serviceName: 'identity', tier: 'basic', assetPath: asset,
+      environment: { NODE_ENV: 'development', TABLE_NAME: 'edforge-identity-basic' },
+    });
+    const t = Template.fromStack(stack);
+    const fn = Object.values(t.findResources('AWS::Lambda::Function', { Properties: { FunctionName: 'edforge-identity-basic-api' } }))[0] as { Properties: { Environment: { Variables: Record<string, string> } } };
+    expect(fn.Properties.Environment.Variables.NODE_ENV).toBe('production');
   });
 
   it('sets 30-day log retention on the function log group', () => {
