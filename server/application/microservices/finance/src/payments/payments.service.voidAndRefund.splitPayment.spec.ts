@@ -150,9 +150,9 @@ describe('PaymentsService.voidPayment — Phase C SPEC-1 + SPEC-3 fixes', () => 
     );
     // openingBalanceSettled NOT touched on legacy
     expect(mocks.studentAccountsService.decrementOpeningBalanceSettled).not.toHaveBeenCalled();
-    // Ledger debit records full amount
+    // Ledger reversal records the full amount as a negative credit (#502 A3)
     expect(mocks.studentAccountsService.recordLedgerEntry).toHaveBeenCalledWith(
-      account, 'adjustment', PAYMENT_ID, expect.any(String), 2000, 0, ctx,
+      account, 'adjustment', PAYMENT_ID, expect.any(String), 0, -2000, ctx,
     );
   });
 
@@ -186,9 +186,10 @@ describe('PaymentsService.voidPayment — Phase C SPEC-1 + SPEC-3 fixes', () => 
       1000,
       ctx,
     );
-    // Ledger debit still records FULL amount (operator-facing void total)
+    // Ledger reversal still records the FULL amount (operator-facing void
+    // total), as a negative credit (#502 A3)
     expect(mocks.studentAccountsService.recordLedgerEntry).toHaveBeenCalledWith(
-      account, 'adjustment', PAYMENT_ID, expect.any(String), 3000, 0, ctx,
+      account, 'adjustment', PAYMENT_ID, expect.any(String), 0, -3000, ctx,
     );
   });
 

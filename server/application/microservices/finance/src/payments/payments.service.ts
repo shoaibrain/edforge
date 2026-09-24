@@ -2103,17 +2103,19 @@ export class PaymentsService {
       return this.voidMultiTargetPayment(schoolId, existing, voidInvoiceApps, reason, context);
     }
 
+    const now = new Date().toISOString();
     const updated = await this.dynamoDBClient.updateItem<PaymentEntity>(
       client,
       context.tenantId,
       entityKey,
-      'SET #status = :newStatus, updatedAt = :now, metadata.voidReason = :reason, #v = #v + :one',
+      'SET #status = :newStatus, updatedAt = :now, metadata.voidReason = :reason, #v = #v + :one, gsi1sk = :newGsi1sk',
       {
         ':newStatus': 'cancelled',
-        ':now': new Date().toISOString(),
+        ':now': now,
         ':reason': reason,
         ':one': 1,
         ':currentVersion': existing.version,
+        ':newGsi1sk': GSIKeyBuilder.entitySort('PAYMENT', `cancelled#${now}`),
       },
       '#v = :currentVersion',
       { '#status': 'status', '#v': 'version' },
@@ -2139,10 +2141,13 @@ export class PaymentsService {
       context,
     );
 
-    // Post void debit to student account ledger. The ledger entry
-    // records the FULL payment amount (this is the void of the entire
-    // payment); the openingBalanceSettled counter decrement (below)
-    // handles the opening-portion bookkeeping separately.
+    // Post the void to the student account ledger as a NEGATIVE CREDIT
+    // rather than a positive debit. The account's `totalPaid` is defined
+    // as Σ(credit), so a debit restores `balance` while leaving
+    // `totalPaid` permanently inflated by every payment ever voided
+    // (#502 A3). The entry records the FULL payment amount; the
+    // openingBalanceSettled counter decrement (below) handles the
+    // opening-portion bookkeeping separately.
     const accountKey = EntityKeyBuilder.billingAccount(schoolId, existing.studentId);
     const account = await this.dynamoDBClient.getItem<BillingAccountEntity>(client, context.tenantId, accountKey);
     if (account) {
@@ -2151,8 +2156,8 @@ export class PaymentsService {
         'adjustment',
         paymentId,
         `Payment ${existing.receiptNumber} voided: ${reason}`,
-        existing.amount,
         0,
+        -existing.amount,
         context,
       );
     }
@@ -2200,8 +2205,9 @@ export class PaymentsService {
    *   [1..N]   per-target invoice restore (buildReversePaymentTransactItem)
    *            in application order
    *   [N+1..]  per affected account: reversing 'adjustment' ledger Puts
-   *            (debit = that target's allocation) + the account Update —
-   *            the composite-helper shape, repeated per account
+   *            (credit = −that target's allocation, see the single-target
+   *            path for why the reversal is a negative credit) + the
+   *            account Update — the composite-helper shape, per account
    *
    * No openingBalanceSettled handling: multi-target payments never touch
    * opening balances (planner contract).
@@ -2247,13 +2253,14 @@ export class PaymentsService {
           TableName: tableName,
           Key: { tenantId: existing.tenantId, entityKey: existing.entityKey },
           UpdateExpression:
-            'SET #status = :newStatus, updatedAt = :now, metadata.voidReason = :reason, #v = #v + :one',
+            'SET #status = :newStatus, updatedAt = :now, metadata.voidReason = :reason, #v = #v + :one, gsi1sk = :newGsi1sk',
           ExpressionAttributeValues: {
             ':newStatus': 'cancelled',
             ':now': now,
             ':reason': reason,
             ':one': 1,
             ':currentVersion': existing.version,
+            ':newGsi1sk': GSIKeyBuilder.entitySort('PAYMENT', `cancelled#${now}`),
           },
           ExpressionAttributeNames: { '#status': 'status', '#v': 'version' },
           ConditionExpression: '#v = :currentVersion',
@@ -2282,8 +2289,8 @@ export class PaymentsService {
           description:
             `Payment ${existing.receiptNumber} voided: ${reason} → invoice `
             + `${targetById.get(a.invoiceId)!.invoiceNumber}`,
-          debit: a.amount,
-          credit: 0,
+          debit: 0,
+          credit: -a.amount,
         })),
         context,
       );
@@ -2470,7 +2477,9 @@ export class PaymentsService {
       context,
     );
 
-    // Record refund ledger entry. The ledger entry records the FULL
+    // Record refund ledger entry as a NEGATIVE CREDIT (see voidPayment:
+    // `totalPaid` is Σ(credit), and refunded cash must come back out of
+    // the account's cumulative collections). The entry records the FULL
     // refund amount (operator-facing total); the openingBalanceSettled
     // decrement (below) handles the opening-portion bookkeeping
     // separately on a split payment.
@@ -2482,8 +2491,8 @@ export class PaymentsService {
         'refund',
         refund.id,
         `Refund for payment ${existing.receiptNumber}: ${dto.reason}`,
-        dto.amount,
         0,
+        -dto.amount,
         context,
       );
     }
@@ -2608,8 +2617,8 @@ export class PaymentsService {
           description:
             `Refund for payment ${existing.receiptNumber}: ${refund.reason} → invoice `
             + `${targetById.get(a.invoiceId)!.invoiceNumber}`,
-          debit: a.amount,
-          credit: 0,
+          debit: 0,
+          credit: -a.amount,
         })),
         context,
       );
