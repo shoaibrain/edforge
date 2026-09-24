@@ -170,6 +170,57 @@ export interface PaymentEntity extends BaseEntity {
   gsi14sk?: string;
 }
 
+/**
+ * LILI-BUG #501 — idempotency sentinel row for a manual payment.
+ *
+ * PK: tenantId
+ * SK: PAYMENT_IDEMPOTENCY#{schoolId}#{idempotencyKey}
+ *
+ * Deliberately lean and NOT a `BaseEntity`: it is a lock, not a
+ * business record. It carries only what a replay needs — the
+ * `paymentId` to re-read — and populates no GSI, mirroring the
+ * AGREEMENT_ACTIVE_LOCK / FINANCE_ACTIVE_EXPORT sentinel precedents.
+ *
+ * `ttl` is epoch SECONDS (DDB TTL rejects milliseconds) and must be
+ * named `ttl` to match the table's `timeToLiveAttribute`
+ * (ecs-dynamodb.ts:40). Expiry is the reclaim backstop: a replayable
+ * window of 24h matches the generic idempotency-key row's.
+ */
+export interface PaymentIdempotencySentinel {
+  tenantId: string;
+  entityKey: string;
+  entityType: 'PAYMENT_IDEMPOTENCY';
+  schoolId: string;
+  idempotencyKey: string;
+  paymentId: string;
+  createdAt: string;
+  createdBy: string;
+  ttl: number;
+}
+
+export const PAYMENT_IDEMPOTENCY_TTL_HOURS = 24;
+
+export function createPaymentIdempotencySentinel(
+  tenantId: string,
+  schoolId: string,
+  idempotencyKey: string,
+  paymentId: string,
+  userId: string,
+): PaymentIdempotencySentinel {
+  const now = new Date();
+  return {
+    tenantId,
+    entityKey: EntityKeyBuilder.paymentIdempotency(schoolId, idempotencyKey),
+    entityType: 'PAYMENT_IDEMPOTENCY',
+    schoolId,
+    idempotencyKey,
+    paymentId,
+    createdAt: now.toISOString(),
+    createdBy: userId,
+    ttl: Math.floor(now.getTime() / 1000) + PAYMENT_IDEMPOTENCY_TTL_HOURS * 3600,
+  };
+}
+
 export function createPaymentEntity(
   tenantId: string,
   schoolId: string,

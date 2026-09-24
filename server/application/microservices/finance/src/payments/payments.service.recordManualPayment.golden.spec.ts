@@ -30,6 +30,7 @@ import { PaymentsService } from './payments.service';
 import type { InvoiceEntity } from '../common/entities/invoice.entity';
 import type { BillingAccountEntity } from '../common/entities/billing-account.entity';
 import type { PaymentEntity } from '../common/entities/payment.entity';
+import { EntityKeyBuilder } from '../common/entities/base.entity';
 
 const TENANT_ID = 'tenant-uuid';
 const SCHOOL_ID = 'school-uuid';
@@ -296,9 +297,23 @@ describe('GOLDEN — single-target recordManualPayment transact composition (pre
       createdAt: '2026-07-15T00:00:00Z',
       updatedAt: '2026-07-15T00:00:00Z',
     };
-    mocks.dynamoDBClient.queryGSI.mockResolvedValue({ items: [existing], hasMore: false });
+    // #501 — the hit is now an O(1) sentinel GetItem, not a filtered GSI1
+    // Query. The sentinel carries only the paymentId; the payment row is a
+    // second GetItem on that id.
+    const IDEMPOTENCY_KEY = '3f1d0a34-9f47-4a3b-8b3c-2f4f4d1c9e01';
+    mocks.dynamoDBClient.getItem.mockImplementation(
+      async (_client: unknown, _tenantId: string, entityKey: string) => {
+        if (entityKey === EntityKeyBuilder.paymentIdempotency(SCHOOL_ID, IDEMPOTENCY_KEY)) {
+          return { paymentId: 'existing-pay' };
+        }
+        if (entityKey === EntityKeyBuilder.payment(SCHOOL_ID, 'existing-pay')) {
+          return existing;
+        }
+        return null;
+      },
+    );
 
-    const dto: any = { invoiceId: INVOICE_ID, gateway: 'cash', amount: 700, idempotencyKey: '3f1d0a34-9f47-4a3b-8b3c-2f4f4d1c9e01' };
+    const dto: any = { invoiceId: INVOICE_ID, gateway: 'cash', amount: 700, idempotencyKey: IDEMPOTENCY_KEY };
     const result = await service.recordManualPayment(SCHOOL_ID, dto, ctx);
 
     expect(result.id).toBe('existing-pay');

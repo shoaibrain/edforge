@@ -32,8 +32,10 @@ import type { GatewayVerifyResult } from '../payment-gateways/adapters/gateway-a
 import {
   PaymentEntity,
   PaymentApplication,
+  PaymentIdempotencySentinel,
   RefundData,
   createPaymentEntity,
+  createPaymentIdempotencySentinel,
 } from '../common/entities/payment.entity';
 import { InvoiceEntity } from '../common/entities/invoice.entity';
 import { BillingAccountEntity } from '../common/entities/billing-account.entity';
@@ -49,6 +51,16 @@ import type {
   VerifyPaymentResponse,
 } from '@aibrains/shared-types';
 import { FinanceErrors } from '../common/errors/finance-errors';
+
+/**
+ * LILI-BUG #501 — bounds for the `findPendingForInvoice` exhaustion loop.
+ * A pending gateway session is only actionable for 60 minutes, so the recent
+ * end of the partition is where a match lives; the cap keeps a school with
+ * years of payment history from turning one duplicate check into an unbounded
+ * read.
+ */
+const PENDING_PAYMENT_SCAN_PAGE_SIZE = 100;
+const PENDING_PAYMENT_SCAN_MAX_PAGES = 20;
 
 @Injectable()
 export class PaymentsService {
@@ -356,6 +368,27 @@ export class PaymentsService {
         + ' AND if_not_exists(openingBalanceSettled, :zero) + :toOpening <= openingBalance';
     }
 
+    // LILI-BUG #501 — idempotency sentinel, appended LAST so its index in
+    // CancellationReasons[] is deterministic. Its conditional Put is what
+    // makes the duplicate guarantee atomic: the read-then-write pre-check at
+    // the top of this method cannot see a concurrent retry that has not
+    // committed yet.
+    const sentinelItems = dto.idempotencyKey
+      ? [{
+          Put: {
+            TableName: tableName,
+            Item: createPaymentIdempotencySentinel(
+              context.tenantId,
+              schoolId,
+              dto.idempotencyKey,
+              paymentEntity.paymentId,
+              context.userId,
+            ),
+            ConditionExpression: 'attribute_not_exists(entityKey)',
+          },
+        }]
+      : [];
+
     try {
       await this.dynamoDBClient.transactWrite(client, [
         {
@@ -367,6 +400,7 @@ export class PaymentsService {
         },
         applyItem.item,
         ...composite.items,
+        ...sentinelItems,
       ]);
     } catch (err: any) {
       // TransactionCanceledException carries CancellationReasons[] in the
@@ -381,6 +415,13 @@ export class PaymentsService {
           `ledger_put_${i}_${app.targetType}`,
         );
         const labels = ['payment_put', 'invoice_apply', ...ledgerLabels, 'account_update'];
+        if (sentinelItems.length > 0) labels.push('idempotency_sentinel');
+
+        const replayed = await this.replayOnSentinelConflict(
+          schoolId, dto.idempotencyKey, labels, reasons, context,
+        );
+        if (replayed) return replayed;
+
         const detail = reasons.map((r, i) => `${labels[i] ?? `op_${i}`}=${r?.Code ?? 'OK'}`).join(', ');
         this.logger.warn({
           action: 'payment.manual_transaction_cancelled',
@@ -439,9 +480,11 @@ export class PaymentsService {
    *                    that account) followed by that account's single
    *                    Update (version-conditioned) — the composite-helper
    *                    shape, repeated M times
+   *   last             LILI-BUG #501 idempotency sentinel Put, present only
+   *                    when the caller supplied an idempotencyKey
    *
-   * Ceiling: 1 + N + (N + M) ≤ 1 + 20 + 40 = 61, far under DDB's 100-item
-   * transactWrite limit; asserted defensively anyway.
+   * Ceiling: 1 + N + (N + M) + 1 ≤ 1 + 20 + 40 + 1 = 62, far under DDB's
+   * 100-item transactWrite limit; asserted defensively anyway.
    *
    * Deliberately NOT here (V1): opening-balance settlement (multi-target
    * payments never touch opening balances — see payment-allocation.planner
@@ -671,7 +714,26 @@ export class PaymentsService {
       allLedgerEntryIds.push(...composite.ledgerEntries.map(le => le.entryId));
     }
 
-    // DDB hard ceiling — schema cap 20 keeps us ≤ 61; assert anyway so a
+    // LILI-BUG #501 — idempotency sentinel, LAST item (see the single-target
+    // path for the rationale).
+    if (dto.idempotencyKey) {
+      transactItems.push({
+        Put: {
+          TableName: tableName,
+          Item: createPaymentIdempotencySentinel(
+            context.tenantId,
+            schoolId,
+            dto.idempotencyKey,
+            paymentEntity.paymentId,
+            context.userId,
+          ),
+          ConditionExpression: 'attribute_not_exists(entityKey)',
+        },
+      });
+      labels.push('idempotency_sentinel');
+    }
+
+    // DDB hard ceiling — schema cap 20 keeps us ≤ 62; assert anyway so a
     // future widening can't silently split the atomicity guarantee.
     if (transactItems.length > 100) {
       throw new Error(
@@ -685,6 +747,12 @@ export class PaymentsService {
     } catch (err: any) {
       if ((err?.name ?? '') === 'TransactionCanceledException') {
         const reasons = (err?.CancellationReasons as { Code?: string; Message?: string }[] | undefined) ?? [];
+
+        const replayed = await this.replayOnSentinelConflict(
+          schoolId, dto.idempotencyKey, labels, reasons, context,
+        );
+        if (replayed) return replayed;
+
         const detail = reasons.map((r, i) => `${labels[i] ?? `op_${i}`}=${r?.Code ?? 'OK'}`).join(', ');
         this.logger.warn({
           action: 'payment.multi_target_transaction_cancelled',
@@ -2777,6 +2845,50 @@ export class PaymentsService {
     } while (lastKey && totalRows < MAX_ROWS);
   }
 
+  /**
+   * LILI-BUG #501 — a cancelled transaction whose ONLY failed op is the
+   * idempotency sentinel means a concurrent (or earlier) attempt with this
+   * key already committed. That is not a conflict for the caller to retry,
+   * it is the duplicate we were asked to suppress: re-read the winner and
+   * replay its response.
+   *
+   * Returns null when the sentinel is not the failing op, or when the winning
+   * payment row cannot be read back — both fall through to the existing 409,
+   * which is safe (the operator retries and gets the replay).
+   */
+  private async replayOnSentinelConflict(
+    schoolId: string,
+    idempotencyKey: string | undefined,
+    labels: string[],
+    reasons: { Code?: string; Message?: string }[],
+    context: RequestContext,
+  ): Promise<Payment | null> {
+    if (!idempotencyKey) return null;
+
+    const sentinelIndex = labels.indexOf('idempotency_sentinel');
+    if (sentinelIndex < 0 || reasons[sentinelIndex]?.Code !== 'ConditionalCheckFailed') {
+      return null;
+    }
+
+    const prior = await this.findByIdempotencyKey(schoolId, idempotencyKey, context);
+    if (!prior) return null;
+
+    this.logger.log({
+      action: 'payment.idempotent_replay',
+      schoolId,
+      paymentId: prior.paymentId,
+      receiptNumber: prior.receiptNumber,
+    });
+    return paymentEntityToDto(prior);
+  }
+
+  /**
+   * LILI-BUG #501 — the `Limit: 1` this used to carry was applied by DDB
+   * BEFORE the FilterExpression, against a school-scoped partition holding
+   * every payment the school ever took: one arbitrary row was read, filtered
+   * away, and the caller concluded "no pending session". Read to exhaustion
+   * with a hard page cap instead.
+   */
   private async findPendingForInvoice(
     schoolId: string,
     invoiceId: string,
@@ -2786,41 +2898,70 @@ export class PaymentsService {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
     const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
 
-    const result = await this.dynamoDBClient.queryGSI<PaymentEntity>(
-      client,
-      'GSI1',
-      gsi1pk,
-      'PAYMENT#pending',
-      'begins_with',
-      'invoiceId = :invoiceId AND gateway = :gateway',
-      { ':invoiceId': invoiceId, ':gateway': gateway },
-      undefined,
-      1,
-    );
+    let lastKey: ReturnType<typeof decodeCursor>;
+    let pages = 0;
 
-    return result.items.length > 0 ? result.items[0] : null;
+    do {
+      const result = await this.dynamoDBClient.queryGSI<PaymentEntity>(
+        client,
+        'GSI1',
+        gsi1pk,
+        'PAYMENT#pending',
+        'begins_with',
+        'invoiceId = :invoiceId AND gateway = :gateway AND #status = :pending',
+        { ':invoiceId': invoiceId, ':gateway': gateway, ':pending': 'pending' },
+        { '#status': 'status' },
+        PENDING_PAYMENT_SCAN_PAGE_SIZE,
+        // Newest first: gsi1sk sorts on createdAt, the caller only acts on a
+        // session younger than 60 minutes, and the page cap must truncate the
+        // OLDEST rows — scanning forward would reproduce the starvation the
+        // Limit caused.
+        false,
+        lastKey,
+      );
+
+      // A voided payment keeps its `PAYMENT#pending#...` gsi1sk, so the key
+      // prefix alone does not prove the row is still pending. Re-assert the
+      // attribute rather than trusting the index.
+      const match = result.items.find(payment => payment.status === 'pending');
+      if (match) return match;
+
+      lastKey = decodeCursor(result.lastEvaluatedKey);
+      pages++;
+    } while (lastKey && pages < PENDING_PAYMENT_SCAN_MAX_PAGES);
+
+    return null;
   }
 
+  /**
+   * LILI-BUG #501 — O(1) GetItem on the sentinel row written inside the
+   * payment's own transaction, replacing a GSI1 Query whose `Limit: 1` was
+   * applied before its `idempotencyKey` filter and therefore effectively
+   * never matched. Sentinel and payment commit atomically, so a sentinel
+   * hit implies the payment row exists.
+   *
+   * Returns null for payments recorded before this shipped — they carry an
+   * `idempotencyKey` attribute but no sentinel. The lookup they had was
+   * already non-functional, so nothing regresses.
+   */
   private async findByIdempotencyKey(
     schoolId: string,
     idempotencyKey: string,
     context: RequestContext,
   ): Promise<PaymentEntity | null> {
     const client = await this.dynamoDBClient.getClient(context.tenantId, context.jwtToken);
-    const gsi1pk = GSIKeyBuilder.schoolScope(context.tenantId, schoolId);
 
-    const result = await this.dynamoDBClient.queryGSI<PaymentEntity>(
+    const sentinel = await this.dynamoDBClient.getItem<PaymentIdempotencySentinel>(
       client,
-      'GSI1',
-      gsi1pk,
-      'PAYMENT',
-      'begins_with',
-      'idempotencyKey = :idempKey',
-      { ':idempKey': idempotencyKey },
-      undefined,
-      1,
+      context.tenantId,
+      EntityKeyBuilder.paymentIdempotency(schoolId, idempotencyKey),
     );
+    if (!sentinel) return null;
 
-    return result.items.length > 0 ? result.items[0] : null;
+    return this.dynamoDBClient.getItem<PaymentEntity>(
+      client,
+      context.tenantId,
+      EntityKeyBuilder.payment(schoolId, sentinel.paymentId),
+    );
   }
 }
