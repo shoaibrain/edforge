@@ -47,7 +47,9 @@ export type FinanceEntityType =
   | 'AGREEMENT_MEMBER'
   | 'AGREEMENT_ACTIVE_LOCK'
   // EPIC-FB BH-1.1 (epic §3.6 R11) — per-term duplicate-billing lock:
-  | 'AGREEMENT_TERM_LOCK';
+  | 'AGREEMENT_TERM_LOCK'
+  // LILI-BUG #501 — per-payment idempotency sentinel:
+  | 'PAYMENT_IDEMPOTENCY';
 
 /**
  * Entity key builders for consistent key generation
@@ -112,6 +114,26 @@ export const EntityKeyBuilder = {
    */
   idempotencyKey: (operatorId: string, key: string): string =>
     `IDEMPOTENCY#${operatorId}#${key}`,
+
+  /**
+   * LILI-BUG #501 — per-payment idempotency sentinel.
+   *
+   * Distinct from `idempotencyKey` above: that row is the generic
+   * operator-scoped `Idempotency-Key` HTTP-header cache behind the
+   * `@Idempotent()` interceptor. This one is keyed on the
+   * `dto.idempotencyKey` a cashier's client mints per payment attempt
+   * and is school-scoped, because the recorded payment is.
+   *
+   * It exists so the duplicate check is an O(1) GetItem instead of a
+   * GSI1 Query with a FilterExpression — DDB applies `Limit` BEFORE
+   * the filter, so the old lookup read one arbitrary row out of a
+   * partition holding every payment the school ever took and concluded
+   * "not a duplicate" (#501). Written as the LAST item of the payment's
+   * TransactWriteItems under `attribute_not_exists(entityKey)`, which
+   * also makes the guarantee atomic rather than read-then-write.
+   */
+  paymentIdempotency: (schoolId: string, idempotencyKey: string): string =>
+    `PAYMENT_IDEMPOTENCY#${schoolId}#${idempotencyKey}`,
 
   /**
    * Sprint 0.3 — finance bulk-export audit-event row.

@@ -596,13 +596,28 @@ export class StudentsService {
             values[':withdrawalDate'] = new Date().toISOString().split('T')[0];
           }
         } else if (key === 'guardians' && Array.isArray(value)) {
+          // #503 — this SETs the whole array, so anything the client cannot
+          // send is destroyed on every write. `userId` is not on guardianSchema
+          // at all (Zod strips it, the mapper whitelists it out) and
+          // `hasPortalAccess` defaults to false there, so an omitted flag is
+          // indistinguishable from an explicit one. Both are server-owned —
+          // only linkGuardianToUser writes them — so carry them forward from
+          // the stored row for every guardian the payload still names. A
+          // guardian absent from the payload is still dropped.
+          const storedGuardians = new Map<string, Guardian>(
+            (student.guardians ?? []).map(g => [g.guardianId, g]),
+          );
           updates.push('guardians = :guardians');
-          values[':guardians'] = value.map((g: any, i: number) => ({
-            ...g,
-            guardianId: g.guardianId || uuid(),
-            isPrimary: g.isPrimary ?? i === 0,
-            hasPortalAccess: g.hasPortalAccess ?? false,
-          }));
+          values[':guardians'] = value.map((g: any, i: number) => {
+            const stored = g.guardianId ? storedGuardians.get(g.guardianId) : undefined;
+            return {
+              ...g,
+              guardianId: g.guardianId || uuid(),
+              isPrimary: g.isPrimary ?? i === 0,
+              hasPortalAccess: (stored ? stored.hasPortalAccess : g.hasPortalAccess) ?? false,
+              ...(stored?.userId ? { userId: stored.userId } : {}),
+            };
+          });
         } else {
           updates.push(`${key} = :${key}`);
           values[`:${key}`] = value;
