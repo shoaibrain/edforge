@@ -3,6 +3,7 @@ import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } f
 import { CircuitBreakerService } from './circuit-breaker.service';
 import { RetryStrategyService } from './retry-strategy.service';
 import { isLambdaRuntime } from '@app/common-utils';
+import { getLogContext } from '@app/logger';
 
 export interface RequestContext {
   tenantId: string;
@@ -10,6 +11,7 @@ export interface RequestContext {
   jwtToken?: string;
   userRole?: string;
   userName?: string;
+  correlationId?: string;
 }
 
 export interface HttpClientConfig {
@@ -130,6 +132,14 @@ export class HttpClientService {
       if (context.userRole) {
         headers['X-User-Role'] = context.userRole;
       }
+    }
+
+    // correlationMiddleware runs every HTTP request inside asyncLocalStorage.run(),
+    // so the callee joins the caller's trace without any caller passing it through.
+    // Worker and scheduled invocations have no store and correctly send no header.
+    const correlationId = context?.correlationId ?? getLogContext()?.correlationId;
+    if (correlationId) {
+      headers['X-Correlation-Id'] = correlationId;
     }
 
     return headers;

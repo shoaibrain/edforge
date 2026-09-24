@@ -24,6 +24,7 @@ import { FinanceErrors } from '../common/errors/finance-errors';
 import type { BillingAccountEntity } from '../common/entities/billing-account.entity';
 import type { InvoiceEntity } from '../common/entities/invoice.entity';
 import type { PaymentEntity } from '../common/entities/payment.entity';
+import { EntityKeyBuilder } from '../common/entities/base.entity';
 
 const ctx = {
   tenantId: 'tenant-x',
@@ -366,7 +367,19 @@ describe('PaymentsService.recordManualPayment (Sprint C2.B.T4 atomic write)', ()
       updatedBy: '',
       version: 1,
     };
-    ddb.queryGSI.mockResolvedValueOnce({ items: [existing], hasMore: false });
+    // #501 — the fast-path skip is now a sentinel GetItem (paymentId only)
+    // followed by a GetItem for the payment row.
+    ddb.getItem.mockImplementation(
+      async (_client: unknown, _tenantId: string, entityKey: string) => {
+        if (entityKey === EntityKeyBuilder.paymentIdempotency(SCHOOL_ID, 'idem-1')) {
+          return { paymentId: 'pay-existing' };
+        }
+        if (entityKey === EntityKeyBuilder.payment(SCHOOL_ID, 'pay-existing')) {
+          return existing;
+        }
+        return null;
+      },
+    );
 
     const svc = new PaymentsService(
       ddb,
