@@ -83,7 +83,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       appClientId: payload.aud,
     };
 
-    this.logger.debug(`JWT validated for user ${context.email} in tenant ${context.tenantId}`);
+    this.logger.debug(`JWT validated for user ${context.userId} in tenant ${context.tenantId}`);
     
     return context;
   }
