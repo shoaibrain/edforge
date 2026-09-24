@@ -29,6 +29,7 @@ import {
   SiblingCountResolver,
   SiblingCountMemo,
 } from '../discount-rules/sibling-count.resolver';
+import type { BillingAccountEntity } from '../common/entities/billing-account.entity';
 import type { DiscountRuleEntity } from '../common/entities/discount-rule.entity';
 import type { BillingAgreementEntity } from '../common/entities/billing-agreement.entity';
 import { createAgreementTermLockEntity } from '../common/entities/billing-agreement.entity';
@@ -117,6 +118,13 @@ function isBypassMarker(
 
 /** Statuses that end an invoice's financial life for the duplicate-billing guard. */
 const AGREEMENT_GUARD_DEAD_STATUSES = new Set(['cancelled', 'written_off']);
+
+/**
+ * Statuses an invoice can only hold after `issue()` posted its debit to the
+ * ledger. A cancel out of one of these must reverse the receivable; a cancel
+ * out of `draft` must not (no debit was ever posted).
+ */
+const LEDGER_POSTED_STATUSES = new Set(['issued', 'partially_paid', 'overdue']);
 
 // Review F2 — per-student GSI2 invoice scans paginate to exhaustion with
 // this page size and a hard safety cap (2,500 rows) before aborting to
@@ -2454,6 +2462,10 @@ export class InvoicesService {
         changedBy: context.userId,
       }];
     }
+    if (dto.status && this.isDeadStatus(dto.status)) {
+      setParts.push('amountDue = :zero');
+      exprValues[':zero'] = 0;
+    }
     if (dto.notes !== undefined) {
       setParts.push('notes = :notes');
       exprValues[':notes'] = dto.notes;
@@ -2466,34 +2478,65 @@ export class InvoicesService {
     const updateExpression = `SET ${setParts.join(', ')}`;
     const conditionExpression = '#v = :currentVersion';
 
+    // A dead status on an invoice whose debit already reached the ledger
+    // (issue() posts it) must reverse the outstanding receivable in the SAME
+    // write — otherwise the school keeps chasing a cancelled invoice. The
+    // reversal is a NEGATIVE debit, not a credit: a credit would inflate the
+    // account's totalPaid and stamp lastPaymentDate (student-accounts.service
+    // buildLedgerEntryTransactItems), and no money changed hands.
+    let reversalItems: NonNullable<TransactWriteCommandInput['TransactItems']> = [];
+    if (
+      dto.status &&
+      this.isDeadStatus(dto.status) &&
+      LEDGER_POSTED_STATUSES.has(existing.status) &&
+      existing.amountDue > 0
+    ) {
+      const account = await this.dynamoDBClient.getItem<BillingAccountEntity>(
+        client,
+        context.tenantId,
+        EntityKeyBuilder.billingAccount(schoolId, existing.studentId),
+      );
+      if (account) {
+        reversalItems = this.studentAccountsService.buildLedgerEntryTransactItems(
+          account,
+          dto.status === 'written_off' ? 'write_off' : 'adjustment',
+          invoiceId,
+          `Invoice ${existing.invoiceNumber} ${dto.status === 'written_off' ? 'written off' : 'cancelled'}`,
+          -existing.amountDue,
+          0,
+          context,
+        ).items;
+      }
+    }
+
     // BH-1.1 — an agreement invoice moving to a DEAD status (issued→cancelled,
     // overdue→written_off, …) must release its per-term lock so the read-guard
     // and the atomic lock agree (a re-bill after cancel is legitimate). Route
     // the status Update + lock Delete through ONE transactWrite so a crash
     // can't orphan the lock; transactWrite returns no attributes, so re-get the
-    // item for the response DTO. Every other update keeps the bare updateItem.
-    let updated: InvoiceEntity;
+    // item for the response DTO. An update carrying a ledger reversal takes the
+    // same transactional route for the same reason. Every other update keeps
+    // the bare updateItem.
+    const invoiceUpdateItem: NonNullable<TransactWriteCommandInput['TransactItems']>[number] = {
+      Update: {
+        TableName: this.dynamoDBClient.getTableName(),
+        Key: { tenantId: context.tenantId, entityKey },
+        UpdateExpression: updateExpression,
+        ExpressionAttributeValues: exprValues,
+        ExpressionAttributeNames: exprNames,
+        ConditionExpression: conditionExpression,
+      },
+    };
+
+    let updated: InvoiceEntity | null = null;
     if (existing.agreementChainId && dto.status && this.isDeadStatus(dto.status)) {
       await this.dynamoDBClient.transactWrite(client, [
-        {
-          Update: {
-            TableName: this.dynamoDBClient.getTableName(),
-            Key: { tenantId: context.tenantId, entityKey },
-            UpdateExpression: updateExpression,
-            ExpressionAttributeValues: exprValues,
-            ExpressionAttributeNames: exprNames,
-            ConditionExpression: conditionExpression,
-          },
-        },
+        invoiceUpdateItem,
         this.agreementLockDeleteItem(existing),
+        ...reversalItems,
       ]);
-      const reread = await this.dynamoDBClient.getItem<InvoiceEntity>(
-        client,
-        context.tenantId,
-        entityKey,
-      );
-      if (!reread) throw new NotFoundException(`Invoice ${invoiceId} not found`);
-      updated = reread;
+    } else if (reversalItems.length > 0) {
+      await this.dynamoDBClient.transactWrite(client, [invoiceUpdateItem, ...reversalItems]);
     } else {
       updated = await this.dynamoDBClient.updateItem<InvoiceEntity>(
         client,
@@ -2504,6 +2547,16 @@ export class InvoicesService {
         conditionExpression,
         exprNames,
       );
+    }
+
+    if (!updated) {
+      const reread = await this.dynamoDBClient.getItem<InvoiceEntity>(
+        client,
+        context.tenantId,
+        entityKey,
+      );
+      if (!reread) throw new NotFoundException(`Invoice ${invoiceId} not found`);
+      updated = reread;
     }
 
     if (dto.status) {
@@ -4092,10 +4145,12 @@ export class InvoicesService {
     const now = new Date().toISOString();
     const updateExpression =
       'SET #status = :cancelled, gsi1sk = :gsi1sk, updatedAt = :now, updatedBy = :by, ' +
+      'amountDue = :zero, ' +
       '#v = #v + :one, statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :historyEntry)';
     const exprValues: Record<string, any> = {
       ':cancelled': 'cancelled',
       ':draft': 'draft',
+      ':zero': 0,
       ':gsi1sk': GSIKeyBuilder.entitySort('INVOICE', `cancelled#${invoice.dueDate}`),
       ':now': now,
       ':by': context.userId,
