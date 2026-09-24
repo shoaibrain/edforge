@@ -22,6 +22,11 @@
  * mean "unavailable → unscoped degrade + retry" and never confuses it with "no
  * years configured". These tests pin `null` on failure (generation still never
  * 5xxes) and that success (an array) is cached but failure (null) is not.
+ *
+ * #505a: the projection also carries the term bounds (`startDate`/`endDate`)
+ * that identity already returns and this client used to discard. They survive
+ * both the projection and the 5-min cache, and a row that omits them is still
+ * admitted (bounds undefined) rather than filtered out.
  */
 
 import { HttpClientService } from '@app/http-client';
@@ -31,6 +36,14 @@ import type { RequestContext } from '../entities/base.entity';
 
 const SCHOOL_ID = 'school-1';
 const INTERNAL_KEY = 'internal-key-abc';
+
+/** Identity returns the term bounds alongside the id + label. */
+const AY_ROW = {
+  yearId: 'ay-uuid',
+  name: '2082-83',
+  startDate: '2026-04-14',
+  endDate: '2027-04-12',
+};
 
 const ctx = (role: string): RequestContext =>
   ({
@@ -62,7 +75,7 @@ describe('finance IdentityClientService.getAcademicYears (BH-1.4)', () => {
 
   it('hits the INTERNAL route with x-internal-api-key (no operator permission needed)', async () => {
     httpClient.get.mockResolvedValue({
-      data: { items: [{ yearId: 'ay-uuid', name: '2082-83' }] },
+      data: { items: [AY_ROW] },
     });
 
     await service.getAcademicYears(SCHOOL_ID, ctx('TenantAdmin'));
@@ -72,13 +85,13 @@ describe('finance IdentityClientService.getAcademicYears (BH-1.4)', () => {
     expect(config.headers['x-internal-api-key']).toBe(INTERNAL_KEY);
   });
 
-  it('happy path → returns the {yearId, name} rows', async () => {
+  it('happy path → returns the {yearId, name, startDate, endDate} rows', async () => {
     httpClient.get.mockResolvedValue({
-      data: { items: [{ yearId: 'ay-uuid', name: '2082-83' }] },
+      data: { items: [AY_ROW] },
     });
 
     const years = await service.getAcademicYears(SCHOOL_ID, ctx('TenantAdmin'));
-    expect(years).toEqual([{ yearId: 'ay-uuid', name: '2082-83' }]);
+    expect(years).toEqual([AY_ROW]);
   });
 
   it('Accountant role RESOLVES the year (no 403 / no unscoped degrade) — the point of the service-auth fix', async () => {
@@ -88,12 +101,12 @@ describe('finance IdentityClientService.getAcademicYears (BH-1.4)', () => {
     // Accountant (and the enrollment-webhook context, same missing permission)
     // now resolve the year.
     httpClient.get.mockResolvedValue({
-      data: { items: [{ yearId: 'ay-uuid', name: '2082-83' }] },
+      data: { items: [AY_ROW] },
     });
 
     const years = await service.getAcademicYears(SCHOOL_ID, ctx('Accountant'));
 
-    expect(years).toEqual([{ yearId: 'ay-uuid', name: '2082-83' }]);
+    expect(years).toEqual([AY_ROW]);
     // No degrade WARN for a role-permission reason.
     const warnMessage = warnSpy.mock.calls.map((c) => String(c[0])).join('\n');
     expect(warnMessage).not.toContain('scheduling:view');
@@ -128,15 +141,15 @@ describe('finance IdentityClientService.getAcademicYears (BH-1.4)', () => {
     // Cache SUCCESS only: a transient blip after a success serves the cached
     // array; a failure never populates the cache (retry next call).
     httpClient.get.mockResolvedValueOnce({
-      data: { items: [{ yearId: 'ay-uuid', name: '2082-83' }] },
+      data: { items: [AY_ROW] },
     });
     const first = await service.getAcademicYears(SCHOOL_ID, ctx('TenantAdmin'));
-    expect(first).toEqual([{ yearId: 'ay-uuid', name: '2082-83' }]);
+    expect(first).toEqual([AY_ROW]);
 
     // Second call would fail, but the cached SUCCESS array is served (no HTTP).
     httpClient.get.mockRejectedValue(new Error('ECONNREFUSED'));
     const second = await service.getAcademicYears(SCHOOL_ID, ctx('TenantAdmin'));
-    expect(second).toEqual([{ yearId: 'ay-uuid', name: '2082-83' }]);
+    expect(second).toEqual([AY_ROW]);
     expect(httpClient.get).toHaveBeenCalledTimes(1);
   });
 
@@ -151,5 +164,34 @@ describe('finance IdentityClientService.getAcademicYears (BH-1.4)', () => {
     const ok = await service.getAcademicYears(SCHOOL_ID, ctx('TenantAdmin'));
     expect(ok).toEqual([{ yearId: 'ay-2', name: '2083-84' }]);
     expect(httpClient.get).toHaveBeenCalledTimes(2);
+  });
+
+  it('#505a — term bounds survive the 5-min cache, not just the first projection', async () => {
+    httpClient.get.mockResolvedValueOnce({ data: [AY_ROW] });
+    await service.getAcademicYears(SCHOOL_ID, ctx('TenantAdmin'));
+
+    const cachedRows = await service.getAcademicYears(SCHOOL_ID, ctx('TenantAdmin'));
+    expect(httpClient.get).toHaveBeenCalledTimes(1);
+    expect(cachedRows?.[0].startDate).toBe('2026-04-14');
+    expect(cachedRows?.[0].endDate).toBe('2027-04-12');
+  });
+
+  it('#505a — a row without usable bounds is still ADMITTED, with the bounds undefined', async () => {
+    httpClient.get.mockResolvedValue({
+      data: {
+        items: [
+          { yearId: 'ay-no-bounds', name: '2081-82' },
+          { yearId: 'ay-null-bounds', name: '2080-81', startDate: null, endDate: 0 },
+        ],
+      },
+    });
+
+    const years = await service.getAcademicYears(SCHOOL_ID, ctx('TenantAdmin'));
+
+    expect(years).toHaveLength(2);
+    expect(years?.[0].startDate).toBeUndefined();
+    expect(years?.[0].endDate).toBeUndefined();
+    expect(years?.[1].startDate).toBeUndefined();
+    expect(years?.[1].endDate).toBeUndefined();
   });
 });
