@@ -2842,9 +2842,75 @@ export class InvoicesService {
     if (!invoice) throw new NotFoundException(`Invoice ${invoiceId} not found`);
 
     const newAmountPaid = Math.max(0, invoice.amountPaid - reversalAmount);
+    const { newStatus, newAmountDue, lifecycleEnded } = this.deriveReversalOutcome(
+      invoice,
+      newAmountPaid,
+    );
+
+    const now = new Date().toISOString();
+
+    const expressionValues: Record<string, unknown> = {
+      ':amountPaid': Math.round(newAmountPaid * 100) / 100,
+      ':now': now,
+      ':one': 1,
+      ':currentVersion': invoice.version,
+      ':expectedStatus': invoice.status,
+    };
+
+    if (!lifecycleEnded) {
+      expressionValues[':amountDue'] = Math.round(Math.max(0, newAmountDue) * 100) / 100;
+      expressionValues[':newStatus'] = newStatus;
+      expressionValues[':gsi1sk'] = GSIKeyBuilder.entitySort(
+        'INVOICE',
+        `${newStatus}#${invoice.dueDate}`,
+      );
+      expressionValues[':emptyList'] = [];
+      expressionValues[':historyEntry'] = [
+        { from: invoice.status, to: newStatus, changedAt: now, changedBy: context.userId },
+      ];
+    }
+
+    const updated = await this.dynamoDBClient.updateItem<InvoiceEntity>(
+      client,
+      context.tenantId,
+      entityKey,
+      lifecycleEnded
+        ? 'SET amountPaid = :amountPaid, updatedAt = :now, #v = #v + :one'
+        : 'SET amountPaid = :amountPaid, amountDue = :amountDue, #status = :newStatus, updatedAt = :now, gsi1sk = :gsi1sk, #v = #v + :one, statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :historyEntry)',
+      expressionValues,
+      '#v = :currentVersion AND #status = :expectedStatus',
+      { '#status': 'status', '#v': 'version' },
+    );
+
+    return updated;
+  }
+
+  /**
+   * #502 A2 — derive the post-reversal status + receivable for a void/refund.
+   *
+   * A cancelled / written_off invoice has ended its financial life, so a
+   * reversal on it may only unwind `amountPaid`. Deriving the status from the
+   * payment totals alone resurrected such an invoice to `issued` and re-raised
+   * the receivable the school deliberately closed — an operator voiding a
+   * bounced cheque weeks after a cancel silently re-billed the family.
+   *
+   * `lifecycleEnded` tells the caller to omit `amountDue`, `#status`, `gsi1sk`
+   * and the `statusHistory` append from the write entirely: the lifecycle
+   * fields are left byte-identical rather than rewritten to their own values,
+   * and no no-op `cancelled → cancelled` entry pollutes the audit trail. The
+   * pre-existing receivable is preserved as-is rather than recomputed, so a
+   * reversal never corrects nor worsens rows written before this fix.
+   */
+  private deriveReversalOutcome(
+    invoice: InvoiceEntity,
+    newAmountPaid: number,
+  ): { newStatus: string; newAmountDue: number; lifecycleEnded: boolean } {
+    if (this.isDeadStatus(invoice.status)) {
+      return { newStatus: invoice.status, newAmountDue: invoice.amountDue, lifecycleEnded: true };
+    }
+
     const newAmountDue = Math.round((invoice.grandTotal - newAmountPaid) * 100) / 100;
 
-    // Determine new status based on remaining payment
     let newStatus: string;
     if (newAmountPaid <= 0) {
       newStatus = 'issued';
@@ -2854,29 +2920,7 @@ export class InvoicesService {
       newStatus = 'paid';
     }
 
-    const now = new Date().toISOString();
-
-    const updated = await this.dynamoDBClient.updateItem<InvoiceEntity>(
-      client,
-      context.tenantId,
-      entityKey,
-      'SET amountPaid = :amountPaid, amountDue = :amountDue, #status = :newStatus, updatedAt = :now, gsi1sk = :gsi1sk, #v = #v + :one, statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :historyEntry)',
-      {
-        ':amountPaid': Math.round(newAmountPaid * 100) / 100,
-        ':amountDue': Math.round(Math.max(0, newAmountDue) * 100) / 100,
-        ':newStatus': newStatus,
-        ':now': now,
-        ':gsi1sk': GSIKeyBuilder.entitySort('INVOICE', `${newStatus}#${invoice.dueDate}`),
-        ':one': 1,
-        ':currentVersion': invoice.version,
-        ':emptyList': [],
-        ':historyEntry': [{ from: invoice.status, to: newStatus, changedAt: now, changedBy: context.userId }],
-      },
-      '#v = :currentVersion',
-      { '#status': 'status', '#v': 'version' },
-    );
-
-    return updated;
+    return { newStatus, newAmountDue, lifecycleEnded: false };
   }
 
   /**
@@ -2902,46 +2946,50 @@ export class InvoicesService {
     newAmountDue: number;
   } {
     const newAmountPaid = Math.max(0, invoice.amountPaid - reversalAmount);
-    const newAmountDue = Math.round((invoice.grandTotal - newAmountPaid) * 100) / 100;
-
-    let newStatus: string;
-    if (newAmountPaid <= 0) {
-      newStatus = 'issued';
-    } else if (newAmountDue > 0) {
-      newStatus = 'partially_paid';
-    } else {
-      newStatus = 'paid';
-    }
+    const { newStatus, newAmountDue, lifecycleEnded } = this.deriveReversalOutcome(
+      invoice,
+      newAmountPaid,
+    );
 
     const now = new Date().toISOString();
+
+    const expressionValues: Record<string, unknown> = {
+      ':amountPaid': Math.round(newAmountPaid * 100) / 100,
+      ':now': now,
+      ':one': 1,
+      ':currentVersion': invoice.version,
+      ':expectedStatus': invoice.status,
+    };
+
+    if (!lifecycleEnded) {
+      expressionValues[':amountDue'] = Math.round(Math.max(0, newAmountDue) * 100) / 100;
+      expressionValues[':newStatus'] = newStatus;
+      expressionValues[':gsi1sk'] = GSIKeyBuilder.entitySort(
+        'INVOICE',
+        `${newStatus}#${invoice.dueDate}`,
+      );
+      expressionValues[':emptyList'] = [];
+      expressionValues[':historyEntry'] = [
+        { from: invoice.status, to: newStatus, changedAt: now, changedBy: context.userId },
+      ];
+    }
 
     return {
       item: {
         Update: {
           TableName: this.dynamoDBClient.getTableName(),
           Key: { tenantId: invoice.tenantId, entityKey: invoice.entityKey },
-          UpdateExpression:
-            'SET amountPaid = :amountPaid, amountDue = :amountDue, #status = :newStatus, updatedAt = :now, gsi1sk = :gsi1sk, #v = #v + :one, statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :historyEntry)',
-          ExpressionAttributeValues: {
-            ':amountPaid': Math.round(newAmountPaid * 100) / 100,
-            ':amountDue': Math.round(Math.max(0, newAmountDue) * 100) / 100,
-            ':newStatus': newStatus,
-            ':now': now,
-            ':gsi1sk': GSIKeyBuilder.entitySort('INVOICE', `${newStatus}#${invoice.dueDate}`),
-            ':one': 1,
-            ':currentVersion': invoice.version,
-            ':emptyList': [],
-            ':historyEntry': [
-              { from: invoice.status, to: newStatus, changedAt: now, changedBy: context.userId },
-            ],
-          },
+          UpdateExpression: lifecycleEnded
+            ? 'SET amountPaid = :amountPaid, updatedAt = :now, #v = #v + :one'
+            : 'SET amountPaid = :amountPaid, amountDue = :amountDue, #status = :newStatus, updatedAt = :now, gsi1sk = :gsi1sk, #v = #v + :one, statusHistory = list_append(if_not_exists(statusHistory, :emptyList), :historyEntry)',
+          ExpressionAttributeValues: expressionValues,
           ExpressionAttributeNames: { '#status': 'status', '#v': 'version' },
-          ConditionExpression: '#v = :currentVersion',
+          ConditionExpression: '#v = :currentVersion AND #status = :expectedStatus',
         },
       },
       newStatus,
       newAmountPaid: Math.round(newAmountPaid * 100) / 100,
-      newAmountDue: Math.round(Math.max(0, newAmountDue) * 100) / 100,
+      newAmountDue: lifecycleEnded ? newAmountDue : Math.round(Math.max(0, newAmountDue) * 100) / 100,
     };
   }
 

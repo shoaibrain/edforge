@@ -54,6 +54,21 @@ interface LinkedStudentsCacheEntry {
 }
 
 /**
+ * One row of identity's academic-year list, as finance projects it.
+ *
+ * `startDate` / `endDate` are optional here even though identity declares
+ * them required (`academicYearResponseSchema`): the projection below admits a
+ * row on `yearId` + `name` alone, so a row missing the bounds is kept rather
+ * than dropped. Consumers must treat absent bounds as "term window unknown".
+ */
+export interface AcademicYearRow {
+  yearId: string;
+  name: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+/**
  * Identity-side response for `GET /schools/:schoolId/pdf-templates/:docType/current`.
  *
  * Sprint C.1.4. Mirrors the same-named type in academics' IdentityClient
@@ -124,12 +139,12 @@ export class IdentityClientService {
   /** FB-0.2 — `${tenantId}:${schoolId}` → resolved name. Nulls never cached. */
   private readonly schoolNameCache = new Map<string, { name: string; cachedAt: number }>();
   /**
-   * BH-1.4 — `${tenantId}:${schoolId}` → academic years (yearId + label).
-   * Failures never cached (retry next call).
+   * BH-1.4 — `${tenantId}:${schoolId}` → academic years (yearId + label +
+   * term bounds). Failures never cached (retry next call).
    */
   private readonly academicYearsCache = new Map<
     string,
-    { years: Array<{ yearId: string; name: string }>; cachedAt: number }
+    { years: AcademicYearRow[]; cachedAt: number }
   >();
   /**
    * In-memory cache for per-(tenant,school,docType) PDF template lookups
@@ -406,7 +421,7 @@ export class IdentityClientService {
   async getAcademicYears(
     schoolId: string,
     context: RequestContext,
-  ): Promise<Array<{ yearId: string; name: string }> | null> {
+  ): Promise<AcademicYearRow[] | null> {
     const cacheKey = `${context.tenantId}:${schoolId}`;
     const cached = this.academicYearsCache.get(cacheKey);
     if (cached && Date.now() - cached.cachedAt < ACADEMIC_YEARS_CACHE_TTL_MS) {
@@ -414,8 +429,7 @@ export class IdentityClientService {
     }
     try {
       const response = await this.httpClient.get<
-        | { items: Array<{ yearId: string; name: string }> }
-        | Array<{ yearId: string; name: string }>
+        { items: AcademicYearRow[] } | AcademicYearRow[]
       >(
         `${this.identityServiceUrl}/internal/schools/${encodeURIComponent(schoolId)}/academic-years`,
         { params: { limit: 100 }, headers: { 'x-internal-api-key': process.env.INTERNAL_API_KEY || '' } },
@@ -428,7 +442,12 @@ export class IdentityClientService {
       const rows = Array.isArray(raw) ? raw : raw?.items ?? [];
       const years = rows
         .filter((y) => y && typeof y.yearId === 'string' && typeof y.name === 'string')
-        .map((y) => ({ yearId: y.yearId, name: y.name }));
+        .map((y) => ({
+          yearId: y.yearId,
+          name: y.name,
+          startDate: typeof y.startDate === 'string' ? y.startDate : undefined,
+          endDate: typeof y.endDate === 'string' ? y.endDate : undefined,
+        }));
       // Cache SUCCESS only — a null/unavailable outcome (catch below) is never
       // reached here, so the cache holds authoritative years exclusively.
       this.academicYearsCache.set(cacheKey, { years, cachedAt: Date.now() });
@@ -578,6 +597,7 @@ export class IdentityClientService {
     gradeLevel: string;
     studentNumber?: string;
     emisStudentId?: string;
+    enrollmentDate?: string;
   } | null> {
     try {
       const response = await this.httpClient.get<any>(
@@ -593,6 +613,7 @@ export class IdentityClientService {
         gradeLevel: d.currentGradeLevel || d.gradeLevel || '',
         studentNumber: d.studentNumber || undefined,
         emisStudentId: d.emisStudentId || undefined,
+        enrollmentDate: d.enrollmentDate || undefined,
       };
     } catch {
       return null;

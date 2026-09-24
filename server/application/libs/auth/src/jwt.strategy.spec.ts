@@ -72,3 +72,26 @@ describe('JwtStrategy.validate', () => {
     expect(ctx.globalRole).toBe(expected);
   });
 });
+
+/**
+ * LILI-BUG #506 G3 — this line ran on every authenticated request to every
+ * service and wrote the operator's email address into CloudWatch. On a platform
+ * holding minors' records that is a compliance defect, so the identifier is the
+ * opaque Cognito sub. The line itself stays: it is the one log line that proves
+ * a route is instrumented at all (#506 G4).
+ */
+describe('JwtStrategy.validate — the audit line carries no PII (#506 G3)', () => {
+  it('logs the Cognito sub, never the email address', async () => {
+    const strategy = new JwtStrategy(authConfig);
+    const debug = jest.spyOn((strategy as any).logger, 'debug').mockImplementation(() => undefined);
+
+    await strategy.validate(basePayload);
+
+    expect(debug).toHaveBeenCalledTimes(1);
+    const emitted = String(debug.mock.calls[0][0]);
+    expect(emitted).toContain(basePayload.sub);
+    expect(emitted).toContain(basePayload['custom:tenantId']);
+    expect(emitted).not.toContain('@');
+    expect(emitted).not.toContain(basePayload.email);
+  });
+});

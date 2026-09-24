@@ -25,6 +25,7 @@ import { PaymentsService } from './payments.service';
 import type { InvoiceEntity } from '../common/entities/invoice.entity';
 import type { BillingAccountEntity } from '../common/entities/billing-account.entity';
 import type { PaymentEntity } from '../common/entities/payment.entity';
+import { EntityKeyBuilder } from '../common/entities/base.entity';
 import { paymentResponseSchema } from '@aibrains/shared-types';
 
 const TENANT_ID = 'tenant-uuid';
@@ -338,11 +339,24 @@ describe('recordManualPayment — FB-4.4 multi-target composition', () => {
       createdAt: '2026-07-15T00:00:00Z',
       updatedAt: '2026-07-15T00:00:00Z',
     };
-    mocks.dynamoDBClient.queryGSI.mockResolvedValue({ items: [existing], hasMore: false });
+    // #501 — the hit is now a sentinel GetItem (paymentId only), then a
+    // GetItem for the payment row itself.
+    const IDEMPOTENCY_KEY = '3f1d0a34-9f47-4a3b-8b3c-2f4f4d1c9e01';
+    mocks.dynamoDBClient.getItem.mockImplementation(
+      async (_client: unknown, _tenantId: string, entityKey: string) => {
+        if (entityKey === EntityKeyBuilder.paymentIdempotency(SCHOOL_ID, IDEMPOTENCY_KEY)) {
+          return { paymentId: 'existing-multi' };
+        }
+        if (entityKey === EntityKeyBuilder.payment(SCHOOL_ID, 'existing-multi')) {
+          return existing;
+        }
+        return null;
+      },
+    );
 
     const result = await service.recordManualPayment(
       SCHOOL_ID,
-      multiDto({ idempotencyKey: '3f1d0a34-9f47-4a3b-8b3c-2f4f4d1c9e01' }),
+      multiDto({ idempotencyKey: IDEMPOTENCY_KEY }),
       ctx,
     );
     expect(result.id).toBe('existing-multi');
