@@ -161,7 +161,7 @@ function buildHarness(payment: PaymentEntity): Harness {
         ...inputs.map((i: any, idx: number) => ({
           Put: {
             TableName: 'edforge-finance-test',
-            Item: { entityType: 'LEDGER_ENTRY', _account: acct.accountId, _idx: idx, _debit: i.debit, _entryType: i.entryType, _description: i.description },
+            Item: { entityType: 'LEDGER_ENTRY', _account: acct.accountId, _idx: idx, _debit: i.debit, _credit: i.credit, _entryType: i.entryType, _description: i.description },
           },
         })),
         { Update: { TableName: 'edforge-finance-test', Key: { tenantId: acct.tenantId, entityKey: acct.entityKey }, _tag: 'account_update', _account: acct.accountId } },
@@ -219,12 +219,14 @@ describe('voidPayment — multi-target (FB-4.5)', () => {
 
     expect(items[3].Put.Item._account).toBe(`acct-${STUDENT_1}`);
     expect(items[3].Put.Item._entryType).toBe('adjustment');
-    expect(items[3].Put.Item._debit).toBe(1000);
+    expect(items[3].Put.Item._debit).toBe(0);
+    expect(items[3].Put.Item._credit).toBe(-1000);
     expect(items[3].Put.Item._description).toContain('voided');
     expect(items[3].Put.Item._description).toContain('INV-AAAA');
     expect(items[4].Update._account).toBe(`acct-${STUDENT_1}`);
     expect(items[5].Put.Item._account).toBe(`acct-${STUDENT_2}`);
-    expect(items[5].Put.Item._debit).toBe(1500);
+    expect(items[5].Put.Item._debit).toBe(0);
+    expect(items[5].Put.Item._credit).toBe(-1500);
     expect(items[6].Update._account).toBe(`acct-${STUDENT_2}`);
 
     // Legacy single-target machinery NOT used on this path.
@@ -286,7 +288,8 @@ describe('refund — multi-target (FB-4.5)', () => {
     expect(items[3].Put.Item._entryType).toBe('refund');
     expect(items[3].Put.Item._description).toContain('Refund for payment RCP-2026-0800');
     expect(items[3].Put.Item._description).toContain('INV-AAAA');
-    expect(items[5].Put.Item._debit).toBe(1500);
+    expect(items[5].Put.Item._debit).toBe(0);
+    expect(items[5].Put.Item._credit).toBe(-1500);
 
     expect(h.studentAccountsService.decrementOpeningBalanceSettled).not.toHaveBeenCalled();
     expect(h.eventsService.publishRefundProcessed).toHaveBeenCalledWith(
