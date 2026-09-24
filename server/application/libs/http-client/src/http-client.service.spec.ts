@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import axios from 'axios';
+import { runWithLogContext } from '@app/logger';
 import { HttpClientService, RequestContext } from './http-client.service';
 import { CircuitBreakerService } from './circuit-breaker.service';
 import { RetryStrategyService } from './retry-strategy.service';
@@ -219,5 +220,54 @@ describe('HttpClientService — circuit-breaker key and timeout under API-B (C2.
     } finally {
       if (saved === undefined) delete process.env.EDFORGE_RUNTIME; else process.env.EDFORGE_RUNTIME = saved;
     }
+  });
+});
+
+// LILI-BUG #506 G1 — buildHeaders forwarded Authorization/X-Tenant-Id/X-User-Id/
+// X-User-Role but not X-Correlation-Id, so the callee minted a fresh id and the
+// academics -> finance enrollment webhook could not be traced end to end.
+describe('HttpClientService — X-Correlation-Id forwarding (#506 G1)', () => {
+  let service: HttpClientService;
+  let axiosInstance: { get: jest.Mock };
+
+  const headersOf = (mock: jest.Mock): Record<string, string> => mock.mock.calls[0][1].headers;
+
+  const context: RequestContext = { tenantId: 'tenant-1', userId: 'user-1', jwtToken: 'jwt-abc' };
+
+  beforeEach(() => {
+    service = new HttpClientService(new CircuitBreakerService(), new RetryStrategyService());
+    axiosInstance = (service as any).axiosInstance;
+    axiosInstance.get = jest.fn().mockResolvedValue({ data: {}, status: 200, statusText: 'OK', headers: {}, config: {} as any });
+  });
+
+  it('forwards the id supplied explicitly on the request context', async () => {
+    await service.get('/test', {}, { ...context, correlationId: 'corr-explicit' });
+    expect(headersOf(axiosInstance.get)['X-Correlation-Id']).toBe('corr-explicit');
+  });
+
+  it('falls back to the AsyncLocalStorage store so existing callers need no change', async () => {
+    await runWithLogContext({ correlationId: 'corr-from-als', tenantId: 'tenant-1' }, () =>
+      service.get('/test', {}, context),
+    );
+    expect(headersOf(axiosInstance.get)['X-Correlation-Id']).toBe('corr-from-als');
+  });
+
+  it('prefers the explicit context id over the ambient store', async () => {
+    await runWithLogContext({ correlationId: 'corr-from-als' }, () =>
+      service.get('/test', {}, { ...context, correlationId: 'corr-explicit' }),
+    );
+    expect(headersOf(axiosInstance.get)['X-Correlation-Id']).toBe('corr-explicit');
+  });
+
+  it('carries the id on a contextless call — the esewa/khalti gateway shape', async () => {
+    await runWithLogContext({ correlationId: 'corr-from-als' }, () => service.get('https://gateway.example/verify'));
+    expect(headersOf(axiosInstance.get)['X-Correlation-Id']).toBe('corr-from-als');
+  });
+
+  it('omits the header entirely when neither source has one — worker and scheduled invocations', async () => {
+    await service.get('/test', {}, context);
+    const headers = headersOf(axiosInstance.get);
+    expect(headers).not.toHaveProperty('X-Correlation-Id');
+    expect(headers).toMatchObject({ Authorization: 'Bearer jwt-abc', 'X-Tenant-Id': 'tenant-1', 'X-User-Id': 'user-1' });
   });
 });
