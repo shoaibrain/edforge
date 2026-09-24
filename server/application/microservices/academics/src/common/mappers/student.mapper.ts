@@ -3,10 +3,11 @@
  * 
  * Translates between DynamoDB entity fields and DTO fields.
  * Key mappings:
- * - Entity: email, phone, address are direct fields
+ * - Entity: email, phone, phoneType, address, mailingAddress, useMailingAddress
+ *   are direct fields
  * - DTO: expects contactInfo object with nested fields
- * - Entity: emergencyContact (singular object)
- * - DTO: emergencyContacts (array)
+ * - Entity: emergencyContacts (array); emergencyContact (singular) is the
+ *   deprecated pre-migration shape, read-only
  * - Entity: primarySchoolId
  * - DTO: schoolId
  */
@@ -43,12 +44,12 @@ export function studentEntityToDto(entity: Student): StudentResponseDto {
     lastName: entity.lastName,
     middleName: entity.middleName,
     preferredName: entity.preferredName,
-    suffix: undefined,
+    suffix: entity.suffix,
     fullName: buildFullName(entity),
     dateOfBirth: entity.dateOfBirth,
     gender: entity.gender,
     studentNumber: entity.studentNumber,
-    stateStudentId: undefined,
+    stateStudentId: entity.stateStudentId,
     emisStudentId: entity.emisStudentId,
     currentGradeLevel: entity.currentGradeLevel,
     status: entity.status,
@@ -56,22 +57,25 @@ export function studentEntityToDto(entity: Student): StudentResponseDto {
     contactInfo: {
       email: entity.email,
       phone: entity.phone,
+      phoneType: entity.phoneType,
       address: entity.address,
+      mailingAddress: entity.mailingAddress,
+      useMailingAddress: entity.useMailingAddress,
     },
     // Map entity guardians to DTO format
     guardians: entity.guardians?.map(mapGuardianEntityToDto),
-    // Map singular emergencyContact to array
-    emergencyContacts: entity.emergencyContact ? [mapEmergencyContactEntityToDto(entity.emergencyContact)] : undefined,
+    // Rows written before the array landed carry only the singular attribute.
+    emergencyContacts: mapEmergencyContactsEntityToDto(entity),
     medicalInfo: entity.medicalInfo ? mapMedicalInfoEntityToDto(entity.medicalInfo) : undefined,
     specialPrograms: entity.specialPrograms,
     accommodations: entity.accommodations,
-    ethnicity: undefined,
-    primaryLanguage: undefined,
-    homeLanguage: undefined,
-    countryOfBirth: undefined,
+    ethnicity: entity.ethnicity,
+    primaryLanguage: entity.primaryLanguage,
+    homeLanguage: entity.homeLanguage,
+    countryOfBirth: entity.countryOfBirth,
     enrollmentDate: entity.enrollmentDate,
-    previousSchool: undefined,
-    notes: undefined,
+    previousSchool: entity.previousSchool,
+    notes: entity.notes,
     // ── Sprint 3 Ed-Fi descriptor fields ──
     // Set via PATCH /academics/students/:id/descriptors and surfaced by the
     // frontend Demographics tab (S3.6). Missing these from the mapper meant
@@ -84,6 +88,8 @@ export function studentEntityToDto(entity: Student): StudentResponseDto {
     isTransferred: entity.isTransferred,
     belowPovertyLine: entity.belowPovertyLine,
     scholarshipCategory: entity.scholarshipCategory,
+    scholarshipAmountNpr: entity.scholarshipAmountNpr,
+    hasEcedExperience: entity.hasEcedExperience,
     createdAt: entity.createdAt!,
     updatedAt: entity.updatedAt!,
     createdBy: entity.createdBy,
@@ -170,25 +176,35 @@ export function createStudentDtoToEntity(dto: CreateStudentDto): Partial<Student
     lastName: sanitizeField(dto.lastName)!,
     middleName: sanitizeField(dto.middleName),
     preferredName: sanitizeField(dto.preferredName),
+    suffix: sanitizeField(dto.suffix),
     dateOfBirth: dto.dateOfBirth,
     gender: dto.gender,
     studentNumber: dto.studentNumber || '',
     emisStudentId: sanitizeField(dto.emisStudentId),
+    stateStudentId: sanitizeField(dto.stateStudentId),
     primarySchoolId: dto.schoolId,  // schoolId -> primarySchoolId
     currentGradeLevel: dto.currentGradeLevel,
     status: 'active',
     enrollmentDate: dto.enrollmentDate || new Date().toISOString().split('T')[0],
+    previousSchool: sanitizeField(dto.previousSchool),
     // Extract from contactInfo object
     email: sanitizeField(dto.contactInfo?.email),
     phone: dto.contactInfo?.phone,
+    phoneType: dto.contactInfo?.phoneType,
     address: dto.contactInfo?.address ? mapAddressDtoToEntity(dto.contactInfo.address) : undefined,
+    mailingAddress: dto.contactInfo?.mailingAddress ? mapAddressDtoToEntity(dto.contactInfo.mailingAddress) : undefined,
+    useMailingAddress: dto.contactInfo?.useMailingAddress,
     // Map DTO guardians to entity format
     guardians: dto.guardians?.map(mapGuardianDtoToEntity) || [],
-    // Map emergencyContacts array to singular emergencyContact
-    emergencyContact: dto.emergencyContacts?.[0] ? mapEmergencyContactDtoToEntity(dto.emergencyContacts[0]) : undefined,
+    emergencyContacts: dto.emergencyContacts?.map(mapEmergencyContactDtoToEntity),
     medicalInfo: dto.medicalInfo ? mapMedicalInfoDtoToEntity(dto.medicalInfo) : undefined,
     specialPrograms: dto.specialPrograms,
     accommodations: dto.accommodations,
+    ethnicity: sanitizeField(dto.ethnicity),
+    primaryLanguage: sanitizeField(dto.primaryLanguage),
+    homeLanguage: sanitizeField(dto.homeLanguage),
+    countryOfBirth: sanitizeField(dto.countryOfBirth),
+    notes: sanitizeField(dto.notes),
     // ── Sprint D0a.4 (D0a.2 followup) — Ed-Fi descriptor pass-through ──
     //
     // These fields are populated by the IEMIS transformer (Sprint D0a.2,
@@ -209,6 +225,8 @@ export function createStudentDtoToEntity(dto: CreateStudentDto): Partial<Student
     isTransferred: dto.isTransferred,
     belowPovertyLine: dto.belowPovertyLine,
     scholarshipCategory: dto.scholarshipCategory,
+    scholarshipAmountNpr: dto.scholarshipAmountNpr,
+    hasEcedExperience: dto.hasEcedExperience,
   };
 }
 
@@ -222,34 +240,71 @@ export function updateStudentDtoToEntity(dto: UpdateStudentDto): Partial<Student
   if (dto.lastName !== undefined) updates.lastName = dto.lastName;
   if (dto.middleName !== undefined) updates.middleName = dto.middleName;
   if (dto.preferredName !== undefined) updates.preferredName = dto.preferredName;
+  if (dto.suffix !== undefined) updates.suffix = sanitizeField(dto.suffix);
   if (dto.dateOfBirth !== undefined) updates.dateOfBirth = dto.dateOfBirth;
   if (dto.gender !== undefined) updates.gender = dto.gender;
   if (dto.studentNumber !== undefined) updates.studentNumber = dto.studentNumber;
+  if (dto.stateStudentId !== undefined) updates.stateStudentId = sanitizeField(dto.stateStudentId);
   if (dto.currentGradeLevel !== undefined) updates.currentGradeLevel = dto.currentGradeLevel;
-  
+
   // Extract from contactInfo object
   if (dto.contactInfo) {
     if (dto.contactInfo.email !== undefined) updates.email = dto.contactInfo.email;
     if (dto.contactInfo.phone !== undefined) updates.phone = dto.contactInfo.phone;
+    if (dto.contactInfo.phoneType !== undefined) updates.phoneType = dto.contactInfo.phoneType;
     if (dto.contactInfo.address !== undefined) {
       updates.address = mapAddressDtoToEntity(dto.contactInfo.address);
     }
+    if (dto.contactInfo.mailingAddress !== undefined) {
+      updates.mailingAddress = mapAddressDtoToEntity(dto.contactInfo.mailingAddress);
+    }
+    if (dto.contactInfo.useMailingAddress !== undefined) {
+      updates.useMailingAddress = dto.contactInfo.useMailingAddress;
+    }
   }
-  
+
   if (dto.guardians !== undefined) {
     updates.guardians = dto.guardians.map(mapGuardianDtoToEntity);
   }
-  
-  if (dto.emergencyContacts !== undefined && dto.emergencyContacts[0]) {
-    updates.emergencyContact = mapEmergencyContactDtoToEntity(dto.emergencyContacts[0]);
+
+  if (dto.emergencyContacts !== undefined) {
+    updates.emergencyContacts = dto.emergencyContacts.map(mapEmergencyContactDtoToEntity);
   }
-  
+
   if (dto.medicalInfo !== undefined) {
     updates.medicalInfo = mapMedicalInfoDtoToEntity(dto.medicalInfo);
   }
-  
+
   if (dto.specialPrograms !== undefined) updates.specialPrograms = dto.specialPrograms;
   if (dto.accommodations !== undefined) updates.accommodations = dto.accommodations;
+
+  if (dto.ethnicity !== undefined) updates.ethnicity = sanitizeField(dto.ethnicity);
+  if (dto.primaryLanguage !== undefined) updates.primaryLanguage = sanitizeField(dto.primaryLanguage);
+  if (dto.homeLanguage !== undefined) updates.homeLanguage = sanitizeField(dto.homeLanguage);
+  if (dto.countryOfBirth !== undefined) updates.countryOfBirth = sanitizeField(dto.countryOfBirth);
+
+  if (dto.enrollmentDate !== undefined) updates.enrollmentDate = dto.enrollmentDate;
+  if (dto.previousSchool !== undefined) updates.previousSchool = sanitizeField(dto.previousSchool);
+  if (dto.notes !== undefined) updates.notes = sanitizeField(dto.notes);
+
+  // scholarshipAmountNpr + hasEcedExperience are the two CEHRD Flash fields the
+  // dedicated descriptor endpoint does NOT carry: they are declared in
+  // `studentDescriptorPatchSchema` but absent from the `descriptorKeys`
+  // allow-list in `students.service.ts`, so this is their only working PATCH
+  // path. The other eight Sprint-3 descriptors are deliberately NOT handled
+  // here — see the comment below.
+  if (dto.scholarshipAmountNpr !== undefined) updates.scholarshipAmountNpr = dto.scholarshipAmountNpr;
+  if (dto.hasEcedExperience !== undefined) updates.hasEcedExperience = dto.hasEcedExperience;
+
+  // NOT mapped, on purpose: sexDescriptor, languageDescriptor,
+  // motherTongueDescriptor, disabilities, ethnicityDescriptor, isTransferred,
+  // belowPovertyLine, scholarshipCategory. `updateStudentSchema` declares them
+  // because it derives from `createStudentSchema.partial()`, but S3.7 routes
+  // every descriptor edit through `PATCH /students/:id/descriptors` so the
+  // `student.descriptor.edited` IEMIS audit event always fires. Persisting
+  // them here would create a second, unaudited write path for Flash I/II
+  // demographic data. The contract should stop declaring them on update —
+  // that is a `@aibrains/shared-types` change, tracked separately.
 
   // #480 — the IEMIS student ID is issued by CEHRD *after* Flash I, so
   // recording it later is the normal lifecycle, not a remediation path. This
@@ -321,13 +376,24 @@ function mapGuardianDtoToEntity(dto: GuardianDto): EntityGuardian {
   };
 }
 
+/**
+ * Read shim for the singular-to-array migration. `emergencyContacts` wins when
+ * present; the deprecated singular is the fallback for rows written before the
+ * array landed. A DDB SET-only update cannot remove the stale singular, so both
+ * attributes coexist on migrated rows and the array must be checked first.
+ */
+function mapEmergencyContactsEntityToDto(entity: Student): EmergencyContactDto[] | undefined {
+  if (entity.emergencyContacts) return entity.emergencyContacts.map(mapEmergencyContactEntityToDto);
+  return entity.emergencyContact ? [mapEmergencyContactEntityToDto(entity.emergencyContact)] : undefined;
+}
+
 function mapEmergencyContactEntityToDto(entity: EntityEmergencyContact): EmergencyContactDto {
   return {
     name: entity.name,
     relationship: entity.relationship,
     phone: entity.phone,
     alternatePhone: entity.alternatePhone,
-    priority: 1, // Default
+    priority: entity.priority ?? 1,
   };
 }
 
@@ -337,6 +403,7 @@ function mapEmergencyContactDtoToEntity(dto: EmergencyContactDto): EntityEmergen
     relationship: sanitizeField(dto.relationship)!,
     phone: dto.phone,
     alternatePhone: dto.alternatePhone,
+    priority: dto.priority,
   };
 }
 

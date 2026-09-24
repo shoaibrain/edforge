@@ -232,13 +232,24 @@ export class StudentsService {
         // Then spread optional entity data
         middleName: entityData.middleName,
         preferredName: entityData.preferredName,
+        suffix: entityData.suffix,
+        stateStudentId: entityData.stateStudentId,
         email: entityData.email,
         phone: entityData.phone,
+        phoneType: entityData.phoneType,
         address: entityData.address,
-        emergencyContact: entityData.emergencyContact,
+        mailingAddress: entityData.mailingAddress,
+        useMailingAddress: entityData.useMailingAddress,
+        emergencyContacts: entityData.emergencyContacts,
         medicalInfo: entityData.medicalInfo,
         specialPrograms: entityData.specialPrograms,
         accommodations: entityData.accommodations,
+        ethnicity: entityData.ethnicity,
+        primaryLanguage: entityData.primaryLanguage,
+        homeLanguage: entityData.homeLanguage,
+        countryOfBirth: entityData.countryOfBirth,
+        previousSchool: entityData.previousSchool,
+        notes: entityData.notes,
         // Sprint D0a.4 — Ed-Fi descriptor fields (pass-through from the
         // CreateStudentDto built by the IEMIS transformer in D0a.2). The
         // explicit field list here previously omitted these, which is why
@@ -252,6 +263,8 @@ export class StudentsService {
         isTransferred: entityData.isTransferred,
         belowPovertyLine: entityData.belowPovertyLine,
         scholarshipCategory: entityData.scholarshipCategory,
+        scholarshipAmountNpr: entityData.scholarshipAmountNpr,
+        hasEcedExperience: entityData.hasEcedExperience,
         // Override with service-specific values
         studentNumber,
         emisStudentId: entityData.emisStudentId,
