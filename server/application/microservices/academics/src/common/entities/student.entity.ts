@@ -41,42 +41,70 @@ export interface Student extends BaseEntity {
    * schools).
    */
   emisStudentId?: string;
-  
+
+  /** Provincial / state-issued student identifier, distinct from the federal
+   *  `emisStudentId`. Free-form; no uniqueness index. */
+  stateStudentId?: string;
+
   // Personal info
   firstName: string;
   lastName: string;
   middleName?: string;
   preferredName?: string;
+  suffix?: string;
   dateOfBirth: string;  // ISO date
   gender: Gender;
-  
+
   // Contact
   email?: string;
   phone?: string;
-  
+  phoneType?: 'mobile' | 'home' | 'work';
+
   // Address
   address?: Address;
-  
+  /** Postal address when it differs from the residential `address`. */
+  mailingAddress?: Address;
+  /** True when correspondence should go to `mailingAddress` rather than `address`. */
+  useMailingAddress?: boolean;
+
   // Guardian/Parent info
   guardians: Guardian[];
-  
-  // Emergency contact
+
+  // Emergency contacts
+  /**
+   * @deprecated Superseded by `emergencyContacts`. Still read by
+   * `studentEntityToDto` for rows written before the array landed; no code
+   * writes it any more. A DDB SET-only update cannot remove it, so it lingers
+   * on pre-existing items — harmless, because the array wins when both exist.
+   */
   emergencyContact?: EmergencyContact;
-  
+  emergencyContacts?: EmergencyContact[];
+
   // Medical
   medicalInfo?: MedicalInfo;
-  
+
   // Academic
   primarySchoolId: string;
   currentGradeLevel: string;
   status: StudentStatus;
   enrollmentDate?: string;
   withdrawalDate?: string;
-  
+  previousSchool?: string;
+
   // Special programs
   specialPrograms?: string[];
   accommodations?: string[];
-  
+
+  // Demographics (legacy free-form — predates the Ed-Fi descriptors below and
+  // is still what the registration wizard collects)
+  ethnicity?: string;
+  primaryLanguage?: string;
+  homeLanguage?: string;
+  countryOfBirth?: string;
+
+  // Free-text operator notes
+  notes?: string;
+
   // Portal access
   portalUserId?: string;  // Link to student portal user in Identity service
 
@@ -181,6 +209,8 @@ export interface EmergencyContact {
   relationship: string;
   phone: string;
   alternatePhone?: string;
+  /** Call order, 1 = first. Absent on rows written before the array landed. */
+  priority?: number;
 }
 
 /**
