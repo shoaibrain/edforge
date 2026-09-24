@@ -43,6 +43,8 @@ cdk.out
 !/docs/attendance-domain/
 # Alpha-launch readiness plan (RBAC-first re-prioritization; ABAC hardening spine).
 !/docs/alpha-launch/
+# Architecture Decision Records (existing ADRs were force-added; track the dir).
+!/docs/decisions/
 # Finance Module bulk-operations sprint plan (grade-level filter, bulk PDF download).
 !/docs/finance-bulk-ops/
 # Pilot Onboarding Hardening sprint plan (PR-PD Previous Dues + PR-CA Custom Yearly Fee Agreement).
