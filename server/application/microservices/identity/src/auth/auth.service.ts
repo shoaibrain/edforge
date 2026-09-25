@@ -216,7 +216,7 @@ export class AuthService {
         roles: schoolRoles,
       };
 
-      this.logger.log(`User logged in: ${user.email} (${tenantId})`);
+      this.logger.log(`User logged in: ${user.userId} (${tenantId})`);
 
       // Layer 4.2 — emit LoginSuccess + SessionCreated (non-blocking).
       this.analytics.emitLoginSuccess({
@@ -589,7 +589,7 @@ export class AuthService {
         }));
       } catch (error: any) {
         lastError = error;
-        this.logger.debug(`Failed to get user with username=${context.username}, trying alternatives...`);
+        this.logger.debug(`Failed to get user by username for userId=${context.userId}, trying alternatives...`);
       }
     }
     
@@ -615,7 +615,7 @@ export class AuthService {
         }));
       } catch (error: any) {
         lastError = error;
-        this.logger.error(`Failed to get user from Cognito with username=${context.username}, userId=${context.userId}, or email=${context.email}: ${error.message}`);
+        this.logger.error(`Failed to get user from Cognito for userId=${context.userId}: ${error.message}`);
         throw new UnauthorizedException('User not found in identity provider');
       }
     }
@@ -644,7 +644,7 @@ export class AuthService {
 
     if (!user) {
       // Self-healing: Create user from JWT claims (same pattern as login())
-      this.logger.log(`Auto-creating user from JWT: ${email} (${userId})`);
+      this.logger.log(`Auto-creating user from JWT: ${userId}`);
       
       const now = new Date().toISOString();
       // Use cognitoUsername from context if available, otherwise fall back to email
@@ -681,7 +681,7 @@ export class AuthService {
       const defaultPreferences = createDefaultPreferences(context.tenantId, userId, userId);
       await this.dynamoDBClient.putItem(client, defaultPreferences);
       
-      this.logger.log(`User auto-created in DynamoDB: ${email} (tenant: ${context.tenantId})`);
+      this.logger.log(`User auto-created in DynamoDB: ${userId} (tenant: ${context.tenantId})`);
     }
 
     // 3. Get DynamoDB extensions
@@ -741,7 +741,7 @@ export class AuthService {
     }
 
     // 3. Return combined response - NEVER fails if DynamoDB record missing
-    this.logger.log(`User profile retrieved: ${email} (Cognito: ${userStatus}, Roles: ${schoolRoles.length})`);
+    this.logger.log(`User profile retrieved: ${userId} (Cognito: ${userStatus}, Roles: ${schoolRoles.length})`);
 
     return {
       user: {

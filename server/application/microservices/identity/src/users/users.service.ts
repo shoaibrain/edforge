@@ -196,7 +196,7 @@ export class UsersService {
       const preferences = createDefaultPreferences(tenantId, userId, context.userId);
       await this.dynamoDBClient.putItem(client, preferences);
 
-      this.logger.log(`User created: ${email} (${userId})`);
+      this.logger.log(`User created: ${userId}`);
 
       // 6. Auto-create linked Staff record if staff context is provided
       if (createUserDto.schoolId && createUserDto.staffRole) {
@@ -227,7 +227,7 @@ export class UsersService {
             { ':staffId': staffResponse.staffId }
           );
 
-          this.logger.log(`Staff auto-created for user ${email}: staffId=${staffResponse.staffId}`);
+          this.logger.log(`Staff auto-created for user ${userId}: staffId=${staffResponse.staffId}`);
 
           // Sync ABAC role assignment so the user can see the school in Shell
           await this.roleSyncService.syncRoleAssignment(
@@ -471,7 +471,7 @@ export class UsersService {
       );
     }
 
-    this.logger.log(`User updated: ${user.email} (${userId})`);
+    this.logger.log(`User updated: ${userId}`);
 
     // Publish user updated event (non-blocking)
     const updatedFields = Object.keys(updateUserDto).filter(k => updateUserDto[k as keyof UpdateUserDto] !== undefined);
@@ -651,7 +651,7 @@ export class UsersService {
       { '#status': 'status' }
     );
 
-    this.logger.log(`User deleted (disabled): ${user.email} (${userId})`);
+    this.logger.log(`User deleted (disabled): ${userId}`);
 
     // Publish user deleted event (non-blocking)
     this.eventsService.publishUserDeleted(
@@ -1212,7 +1212,7 @@ export class UsersService {
         'Parent',
         context,
       );
-      this.logger.log(`Parent role assigned: ${userResponse.email} at school ${dto.schoolId}`);
+      this.logger.log(`Parent role assigned: ${userResponse.userId} at school ${dto.schoolId}`);
     } catch (error: any) {
       this.logger.error(
         `Failed to assign Parent role for ${userResponse.email}: ${error.message}`,
@@ -1287,7 +1287,7 @@ export class UsersService {
         'Student',
         context,
       );
-      this.logger.log(`Student role assigned: ${userResponse.email} at school ${dto.schoolId}`);
+      this.logger.log(`Student role assigned: ${userResponse.userId} at school ${dto.schoolId}`);
     } catch (error: any) {
       this.logger.error(
         `Failed to assign Student role for ${userResponse.email}: ${error.message}`,
