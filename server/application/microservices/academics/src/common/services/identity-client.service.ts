@@ -762,11 +762,11 @@ export class IdentityClientService {
         const staff = await this.getStaffByEmail(email, context);
         staffId = staff?.staffId;
       } catch (error: any) {
-        this.logger.warn(`Staff lookup failed for Teacher ${userId} (${email}): ${error.message}`);
+        this.logger.warn(`Staff lookup failed for Teacher ${userId}: ${error.message}`);
         // staffId stays undefined → DataScopeService returns empty Teacher scope
       }
       if (!staffId) {
-        this.logger.warn(`Teacher ${userId} has no staffId for email ${email}`);
+        this.logger.warn(`Teacher ${userId} has no staffId`);
       }
     }
 
@@ -1015,7 +1015,7 @@ export class IdentityClientService {
       return response.data;
     } catch (error: any) {
       if (error.response?.status === 409) {
-        this.logger.log(`Parent account already exists for ${dto.email} — skipping`);
+        this.logger.log(`Parent account already exists for student ${dto.studentId} — skipping`);
         return null;
       }
       this.logger.error(
@@ -1052,7 +1052,7 @@ export class IdentityClientService {
       return response.data;
     } catch (error: any) {
       if (error.response?.status === 409) {
-        this.logger.log(`Student account already exists for ${dto.email} — skipping`);
+        this.logger.log(`Student account already exists for student ${dto.studentId} — skipping`);
         return null;
       }
       this.logger.error(

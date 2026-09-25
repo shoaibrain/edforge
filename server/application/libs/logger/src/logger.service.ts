@@ -49,6 +49,54 @@ export interface StructuredLogEntry {
   };
 }
 
+/**
+ * Nest's LoggerService contract is `(message: any, context?: string)`, so an
+ * object handed to either slot used to reach `String()` and land in CloudWatch
+ * as the literal text `[object Object]` — losing the payload entirely.
+ *
+ * Call sites across finance and academics deliberately log structured objects
+ * (`{ action: 'payment.manual_recorded', schoolId, ... }`); that intent is
+ * correct and this normalizes it instead of rewriting ~100 call sites:
+ *   - an object MESSAGE keeps `action` (or an inner `message`) as the readable
+ *     line and moves the remaining keys into `metadata`
+ *   - an object CONTEXT is metadata, not a context label
+ *
+ * `Error` is deliberately excluded — `error()` owns that path so the original
+ * stack survives.
+ */
+function normalizeLogInput(
+  message: unknown,
+  context?: unknown,
+): { message: string; context?: string; metadata?: LogMetadata } {
+  let metadata: LogMetadata | undefined;
+  let text: string;
+
+  if (message !== null && typeof message === 'object' && !(message instanceof Error)) {
+    const { action, message: inner, ...rest } = message as Record<string, unknown>;
+    if (typeof inner === 'string') {
+      text = inner;
+      if (typeof action === 'string') rest.action = action;
+    } else if (typeof action === 'string') {
+      text = action;
+    } else {
+      text = '[structured]';
+    }
+    metadata = rest;
+  } else {
+    text = String(message);
+  }
+
+  let contextLabel: string | undefined;
+  if (typeof context === 'string') {
+    contextLabel = context;
+  } else if (context !== null && typeof context === 'object') {
+    metadata = { ...(metadata ?? {}), ...(context as LogMetadata) };
+  }
+
+  if (metadata && Object.keys(metadata).length === 0) metadata = undefined;
+  return { message: text, context: contextLabel, metadata };
+}
+
 @Injectable()
 export class StructuredLogger implements LoggerService {
   private readonly serviceName: string;
@@ -206,8 +254,8 @@ export class StructuredLogger implements LoggerService {
       };
       errorMessage = message.message;
     } else {
-      // Message is a string - use trace parameter if provided
-      errorMessage = String(message);
+      // Message is a string (or a structured object — see normalizeLogInput).
+      errorMessage = normalizeLogInput(message).message;
       
       if (trace && typeof trace === 'string') {
         // Use the provided trace as the stack trace
@@ -220,7 +268,7 @@ export class StructuredLogger implements LoggerService {
       // If no trace provided, don't create a fake Error - just log the message
     }
 
-    this.logMessage('error', errorMessage, context, undefined, errorObj);
+    this.logMessage('error', errorMessage, context, normalizeLogInput(message).metadata, errorObj);
   }
 
   /**
@@ -252,8 +300,9 @@ export class StructuredLogger implements LoggerService {
   /**
    * Log warn level
    */
-  warn(message: any, context?: string): void {
-    this.logMessage('warn', String(message), context);
+  warn(message: any, context?: unknown): void {
+    const n = normalizeLogInput(message, context);
+    this.logMessage('warn', n.message, n.context, n.metadata);
   }
 
   /**
@@ -277,8 +326,9 @@ export class StructuredLogger implements LoggerService {
   /**
    * Log info level
    */
-  log(message: any, context?: string): void {
-    this.logMessage('info', String(message), context);
+  log(message: any, context?: unknown): void {
+    const n = normalizeLogInput(message, context);
+    this.logMessage('info', n.message, n.context, n.metadata);
   }
 
   /**
@@ -302,9 +352,10 @@ export class StructuredLogger implements LoggerService {
   /**
    * Log debug level
    */
-  debug(message: any, context?: string): void {
+  debug(message: any, context?: unknown): void {
     if (this.isDevelopment || process.env.LOG_LEVEL === 'debug') {
-      this.logMessage('debug', String(message), context);
+      const n = normalizeLogInput(message, context);
+      this.logMessage('debug', n.message, n.context, n.metadata);
     }
   }
 
@@ -331,9 +382,10 @@ export class StructuredLogger implements LoggerService {
   /**
    * Log verbose level
    */
-  verbose(message: any, context?: string): void {
+  verbose(message: any, context?: unknown): void {
     if (this.isDevelopment || process.env.LOG_LEVEL === 'verbose') {
-      this.logMessage('verbose', String(message), context);
+      const n = normalizeLogInput(message, context);
+      this.logMessage('verbose', n.message, n.context, n.metadata);
     }
   }
 
