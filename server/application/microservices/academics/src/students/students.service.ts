@@ -1872,10 +1872,11 @@ export class StudentsService {
     }
 
     if (targetIdx === -1) {
-      this.logger.warn(
-        `No matching guardian found for student ${studentId} (guardianId=${guardianId}, email=${guardianEmail})`,
+      // Must throw, not return. The caller has already created a portal account in Identity by the
+      // time this runs, so reporting success here strands that account with nothing referencing it.
+      throw new NotFoundException(
+        `No guardian on student ${studentId} matches guardianId=${guardianId ?? '[none]'} or the supplied email`,
       );
-      return;
     }
 
     guardians[targetIdx] = {
